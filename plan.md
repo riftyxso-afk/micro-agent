@@ -111,3 +111,9 @@
 - Subtle animations present and respect reduced motion.
 - Responsive: mobile bottom nav/collapsed sidebar, composer full width, chips wrap.
 - No console errors; all interactive elements include `data-testid` and are keyboard accessible.
+---
+## STATUS LOG
+- [DONE] Phase 1: POC skipped (UI-only task, no integrations).
+- [DONE] Phase 2: Full Home UI implemented — Sidebar (collapsible, active states, tooltips), Mobile bottom nav, green R avatar w/ dropdown, greeting, prompt composer (textarea autosize, attach w/ real file pills, tools, image, web toggle, model dropdown w/ 4 models + credit badges, Auto Mode toggle, circular send w/ active state, Enter-to-send), 5 quick chips w/ active state + placeholder prefill, framer-motion entrances, sonner toasts, grain + hero glow, responsive (desktop/tablet/mobile).
+- Verified manually via Playwright: typing, model switch (GPT-4.1 ⚡8), sidebar collapse (86->68px), chip active + placeholder change, auto mode, mobile bottom nav.
+- [NEXT] testing_agent_v3 full frontend pass, fix any issues, finish.
