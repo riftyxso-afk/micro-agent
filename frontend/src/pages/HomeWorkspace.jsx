@@ -1,17 +1,23 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
+import { toast } from "sonner";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMenu } from "@/components/workspace/UserMenu";
 import { PromptComposer } from "@/components/workspace/PromptComposer";
 import { QuickChips } from "@/components/workspace/QuickChips";
 import { Logo } from "@/components/workspace/Logo";
+import { getModelById, DEFAULT_MODEL_ID } from "@/lib/workspaceData";
 
 export default function HomeWorkspace() {
+  const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("new");
   const [collapsed, setCollapsed] = useState(false);
   const [activeChip, setActiveChip] = useState(null);
   const [placeholder, setPlaceholder] = useState("Ask anything");
+  const [model, setModel] = useState(() => getModelById(DEFAULT_MODEL_ID));
+  const [autoMode, setAutoMode] = useState(false);
   const reduceMotion = useReducedMotion();
 
   const handleChipClick = (chip) => {
@@ -22,6 +28,36 @@ export default function HomeWorkspace() {
       setActiveChip(chip.id);
       setPlaceholder(chip.hint);
     }
+  };
+
+  const handleModelSelect = (m, isAuto) => {
+    if (isAuto) {
+      setAutoMode(true);
+    } else {
+      setAutoMode(false);
+      setModel(m);
+    }
+  };
+
+  const handleAutoModeToggle = () => {
+    const next = !autoMode;
+    setAutoMode(next);
+    toast(next ? "Auto Mode on" : "Auto Mode off", {
+      description: next
+        ? "MicroAgent picks the best model for every prompt"
+        : `Back to ${model.name}`,
+    });
+  };
+
+  const handleSend = (text) => {
+    navigate("/chat", {
+      state: {
+        prompt: text,
+        modelId: model.id,
+        autoMode,
+        chipId: activeChip,
+      },
+    });
   };
 
   const fadeUp = (delay = 0) =>
@@ -35,10 +71,8 @@ export default function HomeWorkspace() {
 
   return (
     <div className="ma-page relative min-h-dvh">
-      {/* Soft hero glow */}
       <div aria-hidden="true" className="ma-hero-glow" />
 
-      {/* Desktop sidebar */}
       <Sidebar
         activeNav={activeNav}
         onNavChange={setActiveNav}
@@ -46,24 +80,20 @@ export default function HomeWorkspace() {
         onToggleCollapse={() => setCollapsed((c) => !c)}
       />
 
-      {/* Mobile top-left logo */}
       <div className="absolute left-4 top-4 z-30 md:hidden">
         <Logo size={34} />
       </div>
 
-      {/* Top-right avatar */}
       <header className="absolute right-4 top-4 z-30 sm:right-6 sm:top-6">
         <UserMenu />
       </header>
 
-      {/* Main content */}
       <main
         className={`relative flex min-h-dvh flex-col items-center justify-center px-4 pb-28 pt-20 transition-[margin] duration-300 ease-out sm:px-6 md:pb-16 ${
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
         }`}
       >
         <div className="w-full max-w-[860px] -translate-y-[2vh]">
-          {/* Greeting */}
           <motion.div {...fadeUp(0)} className="text-center">
             <h1
               data-testid="greeting-heading"
@@ -76,19 +106,23 @@ export default function HomeWorkspace() {
             </p>
           </motion.div>
 
-          {/* Prompt composer */}
           <motion.div {...fadeUp(0.08)} className="mt-9 sm:mt-11">
-            <PromptComposer placeholder={placeholder} />
+            <PromptComposer
+              placeholder={placeholder}
+              onSend={handleSend}
+              model={model}
+              autoMode={autoMode}
+              onModelSelect={handleModelSelect}
+              onAutoModeToggle={handleAutoModeToggle}
+            />
           </motion.div>
 
-          {/* Quick action chips */}
           <motion.div {...fadeUp(0.16)} className="mt-6 sm:mt-7">
             <QuickChips activeChip={activeChip} onChipClick={handleChipClick} />
           </motion.div>
         </div>
       </main>
 
-      {/* Mobile bottom navigation */}
       <MobileNav activeNav={activeNav} onNavChange={setActiveNav} />
     </div>
   );

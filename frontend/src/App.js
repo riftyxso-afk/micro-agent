@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import HomeWorkspace from "@/pages/HomeWorkspace";
+import ChatInterface from "@/pages/ChatInterface";
 
 function App() {
   return (
@@ -10,6 +11,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomeWorkspace />} />
+          <Route path="/chat" element={<ChatInterface />} />
         </Routes>
       </BrowserRouter>
       <Toaster

@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export const UserMenu = () => {
+export const UserMenu = ({ size = 40 }) => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -16,7 +16,8 @@ export const UserMenu = () => {
           type="button"
           data-testid="user-avatar"
           aria-label="Account menu — Riftyxso"
-          className="ma-focus grid h-10 w-10 place-items-center rounded-full bg-[#22C55E] text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(34,197,94,0.35)] ring-2 ring-white transition-transform duration-150 ease-out hover:scale-[1.05] active:scale-[0.96]"
+          style={{ width: size, height: size }}
+          className="ma-focus grid place-items-center rounded-full bg-[#22C55E] text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(34,197,94,0.35)] ring-2 ring-white transition-transform duration-150 ease-out hover:scale-[1.05] active:scale-[0.96]"
         >
           R
         </button>
