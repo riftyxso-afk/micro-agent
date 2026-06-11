@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import LandingPage from "@/pages/LandingPage";
 import HomeWorkspace from "@/pages/HomeWorkspace";
 import ChatInterface from "@/pages/ChatInterface";
 
@@ -10,7 +11,8 @@ function App() {
     <TooltipProvider delayDuration={200}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomeWorkspace />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/home" element={<HomeWorkspace />} />
           <Route path="/chat" element={<ChatInterface />} />
         </Routes>
       </BrowserRouter>

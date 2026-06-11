@@ -5,14 +5,19 @@
 - ✅ Implement **light interactions** on Home: typing in prompt composer, model selector, quick action chips, sidebar active states, working sidebar collapse.
 - ✅ Add **subtle micro-interactions** (soft fades, hover lifts) and ensure responsive behavior (desktop/tablet/mobile).
 - ✅ Enforce consistent visual tokens (light background, soft shadows, large radii, thin icons) and add `data-testid` attributes to all interactive elements.
-- 🚧 NEW: Deliver a high-fidelity **MicroAgent Chat Interface** screen (frontend-only) that is a polished multi-model AI chat workspace with:
+- ✅ Deliver a high-fidelity **MicroAgent Chat Interface** screen (frontend-only) as a polished multi-model AI chat workspace with:
   - Model transparency (model name/icon, Auto Mode label, credit cost, timestamp/status per assistant message)
   - Collapsible **Thinking** summary block (user-friendly, not chain-of-thought)
   - Message lifecycle states (pending/thinking/streaming/completed/error)
   - Credit UX (balance in top bar; per-message cost; expensive model warning)
   - **Model picker** (search + category tabs + model cards) and consistent composer behavior
   - Light interactions using **mock data** (no AI backend)
-- 🔗 Integration objective (confirmed by user): **Home stays at “/”**; sending from Home navigates to **“/chat”** with that message starting the conversation; sidebar **New** returns to Home; direct visit to **/chat** preloads the spec’s example conversation.
+- 🚧 NEW: Build a modern, premium, highly interactive **MicroAgent Landing Page** (frontend-only) using **React + Tailwind + Framer Motion + lucide-react**, with the **hero prompt composer** as the primary focus.
+- 🚧 NEW: Restructure routing to match landing-page flow:
+  - `/` = Landing Page
+  - `/home` = existing Home workspace
+  - `/chat` = Chat Interface
+  - Landing prompt submit → `/home?prompt=<encoded>` (Home pre-fills composer)
 
 ## Implementation Steps
 
@@ -73,28 +78,22 @@
 
 ---
 
-### Phase 3: Chat Interface (frontend-only, mock interactions) — **NEW CURRENT PHASE**
+### Phase 3: Chat Interface (frontend-only, mock interactions)
 
 #### 3.1 Shared foundations & refactor (to support Home → Chat integration)
 1. **Routing & navigation**
    - Add `/chat` route.
-   - Keep Home at `/`.
    - Implement integrated navigation: **Home send → navigate to `/chat`** with seeded first user message.
-   - Sidebar **New** navigates back to `/`.
+   - Direct visit to `/chat` preloads the spec’s example conversation.
 2. **Shared data model**
-   - Refactor shared constants into a single source (e.g., `workspaceData.js`):
-     - Model list with `id`, `name`, `credits`, `categoryTags`, `color`, and `isExpensive`.
-     - Room mapping for chips → room badge label:
-       - Research → Research Room
-       - Create → Content Room
-       - Analyse → File/Research Mode
-       - Imagine → Image Mode
-       - Solve → Study/Reasoning Mode
+   - Centralize constants into `workspaceData.js`:
+     - Model list with `id`, `name`, `credits`, `categories`, `color`, `isExpensive` + an `Auto Select Model`.
+     - Room mapping for chips → room badge label.
 3. **Unified PromptComposer upgrade (used in both Home and Chat)**
-   - Add `onSend(text)` callback.
-   - Support send → stop state while generating (Chat only; Home uses send-to-chat).
-   - Ensure placeholder updates, web toggle, attachments UI remain consistent.
-   - Keep all existing `data-testid` and add any new ones needed (e.g., `stop-generation-button` if separate).
+   - Add `onSend(text, attachments)` callback.
+   - Support send → stop state while generating (Chat).
+   - Keep placeholder updates, web toggle, attachments UI consistent.
+   - Add/keep `data-testid` for stop: `stop-generation-button`.
 
 #### 3.2 Chat screen layout (high fidelity)
 4. **Left Sidebar (same as Home)**
@@ -102,11 +101,10 @@
 5. **Sticky Top Bar**
    - Title: **New Chat**
    - Room badge: default **Chat Room**; updates via chips.
-   - Credit balance badge: **⚡ 4,250** (decrement with message costs).
+   - Credit balance badge: **⚡ 4,250** (decrements per message cost).
    - User avatar “R” top-right.
    - Thin bottom border; white/transparent background.
-   - Add `data-testid`:
-     - `chat-topbar`, `chat-title`, `room-badge`, `credit-balance`, `chat-avatar`.
+   - Add `data-testid`: `chat-topbar`, `chat-title`, `room-badge`, `credit-balance`, `user-avatar`.
 6. **Main chat area**
    - Centered reading width ~760–900px.
    - User bubbles right-aligned.
@@ -116,35 +114,20 @@
 #### 3.3 Assistant message design (model transparency + states)
 7. **Assistant response header (required)**
    - Model icon + name + optional Auto Mode label + credit cost + timestamp/status.
-   - States examples:
-     - Completed: `DeepSeek v4 Pro · ⚡5 · just now`
-     - Auto-selected: `Gemini 3.1 Pro · Auto Mode · ⚡30 · just now`
-     - Generating: `DeepSeek v4 Pro · generating...`
-   - Add `data-testid`:
-     - `assistant-header`, `assistant-model-name`, `assistant-credit-cost`, `assistant-status`.
+   - Add `data-testid`: `assistant-header`, `assistant-model-name`, `assistant-auto-label`, `assistant-credit-cost`, `assistant-status`.
 8. **Thinking / Loading block (collapsible)**
    - Collapsible header `Thinking ▾`.
-   - Content: short friendly summary steps only:
-     - Understanding the request
-     - Choosing the best approach
-     - Generating the response
-   - Style: slightly indented, left border, muted text, smooth open/close.
-   - NO chain-of-thought.
+   - Content: short friendly summary steps only.
    - Add `data-testid`: `thinking-toggle`, `thinking-content`.
 9. **Message lifecycle states**
-   - pending
-   - thinking (thinking open + shimmer/dots)
-   - streaming (partial answer typing in; thinking visible)
-   - completed
-   - error (soft red card + retry)
-   - Add `data-testid`: `message-state`, `retry-button`.
+   - pending → thinking → streaming → completed.
+   - error: soft red card + retry.
+   - Add `data-testid`: `retry-button`.
 
 #### 3.4 Example conversation content
 10. **Preloaded example on direct /chat visit**
     - User: “Create an iOS Dynamic Island notification component in HTML with animations.”
-    - Assistant (DeepSeek v4 Pro, ⚡5, just now):
-      - Thinking block + intro + code block preview.
-    - Code block: premium dark card style with monospaced font and optional copy button.
+    - Assistant: DeepSeek v4 Pro, ⚡5, “just now” + code block preview.
 
 #### 3.5 Bottom composer + room chips
 11. **Sticky bottom prompt composer (chat)**
@@ -152,82 +135,158 @@
     - Attachment/tools/image/web icons.
     - Model selector shows `DeepSeek v4 Pro · ⚡5` or `Auto Select Model` when Auto Mode.
     - Wand toggle.
-    - Circular send button becomes **stop** during streaming.
-    - Add `data-testid`: `chat-composer`, keep existing composer testids.
+    - Circular send becomes stop during streaming.
+    - Add `data-testid`: `chat-composer`.
 12. **Quick room/action chips near composer**
     - Research / Create / Analyse / Imagine / Solve.
     - Clicking updates room badge + active chip state.
-    - Add `data-testid`: reuse `quick-chip-*`.
 
 #### 3.6 Model picker (new) + credit warnings
-13. **Model Selector UI (Popover/Modal)**
-    - Trigger opens a **Model Picker** containing:
-      - Search input “Search models”
-      - Category tabs: All, Pro, Reasoning, Coding, Writing, Speed
-      - Model cards (9):
-        - Auto Select Model
-        - Gemini 2.5 Flash Lite — ⚡1
-        - MiniMax M2.7 — ⚡1
-        - Claude Haiku 4.5 — ⚡5
-        - Kimi K2.6 — ⚡5
-        - Grok 4.3 — ⚡10
-        - DeepSeek v4 Pro — ⚡5
-        - Gemini 3.1 Pro — ⚡30
-        - GPT 5.5 — ⚡400
-    - Selected card has stronger border.
+13. **Model Selector UI (Modal)**
+    - Search input, category tabs, 9 model cards.
+    - Selected card stronger border + check.
     - Mobile: full-screen modal.
-    - Add `data-testid`:
-      - `model-picker`, `model-search-input`, `model-tab-all|pro|reasoning|coding|writing|speed`, `model-card-<id>`.
+    - Add `data-testid`: `model-picker`, `model-search-input`, `model-tab-*`, `model-card-*`.
 14. **Expensive model warning UX (GPT 5.5)**
-    - Warning text:
-      - “This model uses ⚡400 credits per message. Use it for complex reasoning or important tasks.”
-    - Buttons:
-      - “Use Ultra Model”
-      - “Switch to Cheaper Model”
-    - Ensure selection flows work and update composer label.
+    - Warning panel and buttons: `use-ultra-button`, `switch-cheaper-button`.
 
 #### 3.7 Mock interaction engine (no backend)
 15. **Send → generate loop (deterministic)**
-    - Sending creates a user message.
-    - Assistant message appears in `thinking` state.
-    - After short delay: `streaming` state with progressive text.
-    - Completion: full answer + status “just now” + credit cost.
-    - Credits decrement from balance accordingly.
-    - Stop button aborts streaming and marks message as stopped/completed.
+    - Creates user message + assistant message.
+    - Thinking block shows friendly summary.
+    - Streaming simulates progressive text.
+    - Stop halts generation.
 16. **Deterministic error state**
-    - If user prompt contains the word `error`, assistant returns `error` card:
-      - “Something went wrong. Try again.” + Retry.
-    - Retry restarts the mock generation.
+    - Prompts containing `error` trigger error state; retry succeeds.
 17. **Cleanup**
-    - Ensure timers are cleared on unmount/navigation.
+    - Ensure timers/intervals are cleared on unmount.
 
 #### 3.8 Testing checkpoint (Phase 3)
 18. **Manual verification + testing_agent_v3**
-    - Validate integration flow: Home → Chat seeded message.
-    - Validate chat states: thinking, streaming, stop, completed, error+retry.
-    - Validate model picker: search/tabs/cards, expensive warning.
-    - Validate credits decrement.
-    - Validate mobile: bottom nav, full-screen model picker modal.
+    - Validate navigation, states, model picker, expensive warning, credits decrement, mobile.
 
 **User stories (Phase 3)**
 1. As a user, I send a prompt from Home and land in /chat with my message and a generating assistant response.
 2. As a user, I see exactly which model answered each message, what it cost, and when.
 3. As a user, I can expand/collapse the Thinking summary on any assistant message.
 4. As a user, I watch responses stream in and can stop generation midway.
-5. As a user, I open the model picker, search/filter by category tabs, and switch models — composer + next responses reflect it.
-6. As a user, I get a clear warning before using the expensive GPT 5.5 model and can choose a cheaper one.
+5. As a user, I open the model picker, search/filter by category tabs, and switch models.
+6. As a user, I get a clear warning before using the expensive GPT 5.5 model.
 7. As a user, I click quick chips to change the room/mode shown in the top bar.
 8. As a user, I see a friendly error card with retry when something goes wrong.
-9. As a mobile user, I get bottom nav, full-width composer, and a full-screen model picker.
+9. As a mobile user, I get bottom nav and a full-screen model picker.
 
 ---
 
-### Phase 4: Future (Optional, only after approval)
-- Persist UI preferences locally (collapsed sidebar, last model, last room, last chip) via `localStorage`.
-- Add real backend chat flow (would trigger a new Phase 1 POC for LLM integration).
-- Add authentication (ask first; slows down testing).
+### Phase 4: MicroAgent Landing Page (frontend-only, interactive, conversion-focused) — **NEW CURRENT PHASE**
+
+#### 4.1 Routing restructure + integration
+1. **Route updates (confirmed)**
+   - `/` → **LandingPage**
+   - `/home` → **HomeWorkspace** (move existing Home from `/`)
+   - `/chat` → **ChatInterface** (unchanged)
+2. **Prompt routing behavior (confirmed)**
+   - Landing prompt submit → `/home?prompt=<encoded>`
+   - Empty prompt submit → `/home`
+3. **Home prefill**
+   - HomeWorkspace reads `?prompt=` and pre-fills composer (user reviews then sends to chat).
+   - Requires PromptComposer support for `initialValue`/controlled value.
+4. **Navigation consistency**
+   - Sidebar **New** on Chat and Home navigates to `/home` (not `/`).
+
+#### 4.2 Global styling + motion tokens
+5. **Inter font & Tailwind default**
+   - Ensure Inter is imported; configure `--font-sans: 'Inter', sans-serif;`.
+6. **Cursor blink animation**
+   - Add `@keyframes blink` + `.animate-blink`.
+7. **Optional premium ambient motion**
+   - Soft float, gradient blur pulse, slow background movement (subtle; respect reduced motion).
+
+#### 4.3 Landing layout (required sections)
+8. **Background cinematic layer**
+   - `<video>` (muted, playsInline, preload auto, loop, autoplay) with ~0.20–0.35 opacity.
+   - Overlay gradient `from-white/70 via-white/90 to-white` for readability.
+   - If mouse scrubbing is too complex, skip (fallback to soft animated gradient is allowed).
+9. **Fixed interactive navbar**
+   - Left: gradient logo mark + “MicroAgent”.
+   - Center (desktop): Product, Models, Rooms, Pricing, Docs.
+   - Right: Login + black “Start for free”.
+   - Mobile: hamburger → animated X + full-screen overlay with links and CTAs.
+10. **Hero section**
+    - Typewriter headline via `useTypewriter(text, speed=38, startDelay=600)`:
+      - `All AI.\nOne workspace.`
+      - Show cursor while typing.
+    - Hero description copy (real MicroAgent copy from spec).
+    - Motion: fade/drop-in.
+11. **Hero prompt composer (most important)**
+    - Large rounded composer (rounded-[32px], premium shadow) with:
+      - textarea placeholder “Ask anything with MicroAgent”
+      - attachment + web icons
+      - model selector (opens ModelPicker)
+      - Auto Mode toggle
+      - circular send button (disabled when empty)
+    - Submit behavior routes to `/home?prompt=`.
+    - Enter to submit; Shift+Enter newline.
+12. **Quick action chips**
+    - Research / Create / Analyse / Imagine / Solve with icons, hover lift, active state.
+    - Click updates active mode and placeholder/suggestion.
+    - Motion: stagger.
+13. **Model showcase section**
+    - Use model cards consistent with the picker styling.
+14. **Feature section**
+    - Title: “Everything you need to work with AI”.
+    - 6 feature cards (copy from spec).
+    - Motion: fade-up on scroll.
+15. **AI Rooms section**
+    - Title: “Choose a room. Start faster.”
+    - 4 room cards (Research/Study/Content/Code) with Start → `/home`.
+16. **Credit system section**
+    - Title + transparency description.
+    - Grid of model cards showing sample costs.
+17. **Compare AI section**
+    - Side-by-side responses (DeepSeek vs Gemini) + “Combine best answer” button.
+    - Light interaction: reveal combined answer card.
+18. **Upload file section**
+    - Upload card visual + PDF icon + small Q&A preview.
+19. **Final CTA section**
+    - Title: “Start with one prompt.”
+    - “Start for free” → `/home`.
+20. **Footer**
+    - Links + “© 2026 MicroAgent. All rights reserved.”
+
+#### 4.4 Testing checkpoint (Phase 4)
+21. **Full pass with screenshot + testing_agent_v3**
+    - Landing UX: navbar, typewriter, hero composer submit routing.
+    - Model picker + GPT 5.5 warning.
+    - Quick chips active state.
+    - Scroll reveals.
+    - Compare AI combine interaction.
+    - `/home?prompt=` prefill works.
+    - Regression: `/home` and `/chat` still function.
+    - Carry-over verifications folded into this pass:
+      - Chat Auto Mode header shows “Gemini 3.1 Pro · Auto Mode · ⚡30” and credits drop by 30.
+      - Sidebar New on `/chat` navigates to `/home`.
 
 **User stories (Phase 4)**
+1. Visitor lands on `/`, sees typewriter headline + description and understands MicroAgent immediately.
+2. Visitor types a prompt and routes to `/home` with prompt prefilled.
+3. Visitor opens model picker, searches/filters, sees GPT 5.5 warning, selects a model.
+4. Visitor toggles Auto Mode and sees “Auto Select Model” in the composer.
+5. Visitor clicks quick chips and sees active state + placeholder updates.
+6. Visitor scrolls and sections reveal smoothly.
+7. Visitor clicks “Combine best answer” and sees combined card.
+8. Visitor clicks Start buttons/“Start for free” and lands on `/home`.
+9. Mobile visitor uses hamburger overlay; sections stack; composer full width; model picker full-screen.
+10. Regression/carry-over: Chat Auto Mode metadata/cost works; sidebar New routes to `/home`.
+
+---
+
+### Phase 5: Future (Optional, only after approval)
+- Persist UI preferences locally (collapsed sidebar, last model, last room, last chip) via `localStorage`.
+- Add real backend chat flow (would trigger a new Phase 1 POC for LLM integration).
+- Add authentication.
+
+**User stories (Phase 5)**
 1. As a returning user, I want my selected model remembered so I don’t reconfigure each time.
 2. As a user, I want my sidebar state remembered so the layout stays consistent.
 3. As a user, I want prompts to persist so I can continue where I left off.
@@ -235,22 +294,23 @@
 5. As a user, I want my workspace secured behind login so my history and files are private.
 
 ## Next Actions
-1. Implement `/chat` screen layout (sidebar + sticky top bar + centered chat area + sticky composer).
-2. Build assistant message components with model header + collapsible thinking summary + lifecycle states.
-3. Build unified Model Picker (search + tabs + model cards + expensive warning) and wire to composer.
-4. Implement mock send/generate/stream/stop/error+retry engine + credit decrement.
-5. Integrate Home → Chat navigation (seed initial prompt) and Sidebar New → Home.
-6. Run full test pass (desktop + mobile) with testing_agent_v3 and fix any regressions.
+1. Implement LandingPage at `/` with fixed navbar, background video layer, typewriter hero, and hero prompt composer.
+2. Wire landing composer submit to `/home?prompt=`.
+3. Move HomeWorkspace to `/home` and implement `?prompt` prefill.
+4. Verify sidebar New routes to `/home` across Home/Chat.
+5. Add remaining global animations (blink + subtle ambient motion).
+6. Run full test pass (landing + routing + carry-over chat verifications + regressions) with testing_agent_v3.
 
 ## Success Criteria
-- Home remains polished and unchanged visually, and now **navigates into Chat** when sending a prompt.
-- Chat UI matches spec: sidebar, sticky top bar (title/room/credits/avatar), centered messages, premium assistant cards with model metadata.
-- Thinking block is **collapsible** and contains only friendly summaries (no chain-of-thought).
-- Mock lifecycle states work: thinking → streaming (stop available) → completed; error state with retry.
-- Model picker supports search + category tabs + model cards; expensive model warning works.
-- Credit balance is visible and decrements with message costs.
-- Responsive behavior works across desktop/tablet/mobile (mobile bottom nav + full-screen model picker).
-- No console errors; all interactive elements include `data-testid` and are keyboard accessible.
+- Landing page looks premium, minimal, futuristic, and **not** like a generic SaaS template.
+- Hero prompt composer is the focal point and routes correctly to `/home`.
+- Model picker works on landing with search/tabs/cards + GPT 5.5 warning.
+- Quick action chips animate, toggle, and update suggestions.
+- All required sections exist in the specified order with real MicroAgent copy.
+- Motion is subtle and premium; respects reduced motion.
+- Routing is correct: `/` landing, `/home` workspace, `/chat` chat.
+- `/home?prompt=` prefill works and user can then send to `/chat`.
+- No console errors; interactive elements include `data-testid` and remain accessible.
 
 ---
 ## STATUS LOG
@@ -260,9 +320,16 @@
   - Mobile bottom nav
   - Green avatar menu
   - Greeting + composer + quick chips
-  - Model selection, Auto Mode, web toggle, attachments pills
+  - Unified model picker + Auto Mode + web toggle + attachments
   - Framer-motion entrances + sonner toasts
   - Responsive desktop/tablet/mobile
   - Testing agent pass: **100% (frontend)**
-- [IN PROGRESS] Phase 3: Build MicroAgent Chat Interface screen.
-  - Integrated flow confirmed: Home `/` → Chat `/chat` on send; sidebar New → Home; direct `/chat` loads example conversation.
+- [DONE] Phase 3: Chat Interface implemented.
+  - Model metadata headers, Thinking block, lifecycle states
+  - Streaming + Stop, Error + Retry (deterministic)
+  - Credits decrement fixed (exactly once per message)
+  - Full-screen ModelPicker with tabs/search + GPT 5.5 warning
+  - Mobile bottom nav + full-screen picker
+  - Testing agent: passed 9/9 tested features with zero bugs; remaining items manually verified via Playwright.
+  - Carry-over verifications (to be rechecked post-routing change): Chat Auto Mode header ⚡30, sidebar New navigation.
+- [IN PROGRESS] Phase 4: Build premium interactive Landing Page + route restructure + full regression testing.

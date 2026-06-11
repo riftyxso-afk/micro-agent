@@ -15,6 +15,11 @@
   --ma-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.06);
   --ma-shadow-md: 0 10px 30px rgba(17, 24, 39, 0.07);
   --ma-shadow-lg: 0 18px 44px rgba(17, 24, 39, 0.1);
+  --font-sans: "Inter", sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -155,6 +160,86 @@ body {
 }
 
 /* ===== Chat interface ===== */
+
+/* ===== Landing page ===== */
+
+/* Typewriter cursor blink */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Soft float for decorative elements */
+.ma-float {
+  animation: ma-float 4.5s ease-in-out infinite;
+}
+
+@keyframes ma-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+/* Gradient blur pulse (video fallback / ambient glow) */
+.ma-glow-pulse {
+  animation: ma-glow-pulse 7s ease-in-out infinite;
+}
+
+@keyframes ma-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Combined answer card gradient border */
+.ma-combined-card {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, #7dd3fc, #a5b4fc, #c4b5fd) border-box;
+}
+
+/* Final CTA inner glow */
+.ma-cta-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      420px circle at 50% 0%,
+      rgba(125, 211, 252, 0.12),
+      transparent 60%
+    ),
+    radial-gradient(
+      460px circle at 70% 100%,
+      rgba(196, 181, 253, 0.1),
+      transparent 62%
+    );
+}
+
+/* Hero composer ambient glow on hover/focus */
+.ma-composer-glow:focus-within {
+  box-shadow:
+    0 20px 80px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(165, 180, 252, 0.35);
+}
 
 /* Message entrance */
 .ma-msg-in {

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Paperclip,
   SlidersHorizontal,
@@ -67,8 +67,9 @@ export const PromptComposer = ({
   onModelSelect,
   onAutoModeToggle,
   compact = false,
+  initialValue = "",
 }) => {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
   const [webSearch, setWebSearch] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -76,6 +77,17 @@ export const PromptComposer = ({
   const fileInputRef = useRef(null);
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
+
+  // Resize textarea if mounted with a prefilled value (e.g. /home?prompt=...)
+  useEffect(() => {
+    if (initialValue && textareaRef.current) {
+      const el = textareaRef.current;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+      el.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const autoresize = (el) => {
     el.style.height = "auto";

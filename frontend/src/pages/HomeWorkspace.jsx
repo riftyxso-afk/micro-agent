@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { Sidebar } from "@/components/workspace/Sidebar";
@@ -12,6 +12,9 @@ import { getModelById, DEFAULT_MODEL_ID } from "@/lib/workspaceData";
 
 export default function HomeWorkspace() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialPrompt = searchParams.get("prompt") || "";
+
   const [activeNav, setActiveNav] = useState("new");
   const [collapsed, setCollapsed] = useState(false);
   const [activeChip, setActiveChip] = useState(null);
@@ -109,6 +112,7 @@ export default function HomeWorkspace() {
           <motion.div {...fadeUp(0.08)} className="mt-9 sm:mt-11">
             <PromptComposer
               placeholder={placeholder}
+              initialValue={initialPrompt}
               onSend={handleSend}
               model={model}
               autoMode={autoMode}

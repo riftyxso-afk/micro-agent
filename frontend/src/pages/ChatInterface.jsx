@@ -261,7 +261,7 @@ export default function ChatInterface() {
 
   const handleNavChange = (id) => {
     if (id === "new") {
-      navigate("/");
+      navigate("/home");
       return;
     }
     setActiveNav(id);
