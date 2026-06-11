@@ -13,10 +13,10 @@
   },
   {
     "content": "Phase 2: End-to-end testing using Testing Agent",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Fix any issues found by testing agent",
-    "status": "pending"
+    "status": "cancelled"
   }
 ]
