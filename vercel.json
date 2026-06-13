@@ -1,11 +1,17 @@
 {
-  "installCommand": "npm install --prefix frontend --legacy-peer-deps",
-  "buildCommand": "npm run build --prefix frontend",
+  "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/build",
-  "framework": null,
+  "installCommand": "cd frontend && npm install --legacy-peer-deps",
+  "framework": "create-react-app",
+  "functions": {
+    "api/index.py": {
+      "runtime": "python3.12",
+      "includeFiles": "backend/**"
+    }
+  },
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
