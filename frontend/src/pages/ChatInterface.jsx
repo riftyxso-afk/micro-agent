@@ -363,10 +363,10 @@ export default function ChatInterface() {
           data-testid="chat-messages"
           className="min-h-0 flex-1 overflow-y-auto scroll-smooth"
         >
-          <div className="mx-auto flex w-full max-w-[860px] flex-col gap-6 px-4 py-8 sm:px-6">
+          <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4 px-3 py-6 sm:gap-6 sm:px-4 sm:py-8">
             {messages.length === 0 && (
-              <div className="mx-auto mt-[12vh] max-w-md rounded-[28px] border border-[#E5E7EB] bg-white p-6 text-center shadow-[0_1px_2px_rgba(17,24,39,0.04)]">
-                <p className="text-sm font-semibold text-[#111111]">Start a real 9router chat</p>
+              <div className="mx-auto mt-[8vh] max-w-md rounded-2xl border border-[#E5E7EB] bg-white p-5 text-center shadow-[0_1px_2px_rgba(17,24,39,0.04)] sm:mt-[12vh] sm:rounded-[28px] sm:p-6">
+                <p className="text-sm font-semibold text-[#111111]">Start a real chat</p>
                 <p className="mt-2 text-sm leading-relaxed text-[#6B7280]">
                   Pick a model, type a prompt, and MicroAgent will stream the response from your configured provider.
                 </p>
@@ -382,9 +382,9 @@ export default function ChatInterface() {
           </div>
         </main>
 
-        <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[84px] pt-2 md:pb-5">
-          <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6" data-testid="chat-composer">
-            <div className="mb-3">
+        <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[84px] pt-2 sm:pb-5 md:pb-5">
+          <div className="mx-auto w-full max-w-[860px] px-3 sm:max-w-[860px] sm:px-4 sm:px-6" data-testid="chat-composer">
+            <div className="mb-2.5 sm:mb-3">
               <QuickChips compact activeChip={activeChip} onChipClick={handleChipClick} />
             </div>
             <PromptComposer

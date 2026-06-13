@@ -33,7 +33,7 @@ const staggerGrid = {
 };
 
 const SectionShell = ({ id, children, className = "" }) => (
-  <section id={id} className={`relative z-10 px-6 py-20 sm:py-24 ${className}`}>
+  <section id={id} className={`relative z-10 px-4 py-16 sm:px-6 sm:py-20 md:py-24 ${className}`}>
     <div className="mx-auto w-full max-w-6xl">{children}</div>
   </section>
 );
@@ -44,13 +44,13 @@ const SectionHeading = ({ title, description }) => (
     initial="hidden"
     whileInView="show"
     viewport={{ once: true, margin: "-80px" }}
-    className="mx-auto mb-12 max-w-2xl text-center"
+    className="mx-auto mb-8 max-w-2xl text-center sm:mb-12"
   >
-    <h2 className="text-3xl font-medium tracking-tight text-[#111111] sm:text-4xl md:text-[44px] md:leading-[1.1]">
+    <h2 className="text-2xl font-medium tracking-tight text-[#111111] sm:text-3xl md:text-4xl lg:text-[44px] lg:leading-[1.1]">
       {title}
     </h2>
     {description && (
-      <p className="mt-4 text-base leading-relaxed text-[#6B7280] md:text-lg">
+      <p className="mt-3 text-sm leading-relaxed text-[#6B7280] sm:mt-4 sm:text-base md:text-lg">
         {description}
       </p>
     )}

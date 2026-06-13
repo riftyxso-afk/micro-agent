@@ -90,7 +90,7 @@ export const LandingComposer = () => {
         animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98], delay: 0.25 }}
         data-testid="landing-composer"
-        className="ma-composer-glow mx-auto w-full max-w-3xl rounded-[32px] border border-neutral-200 bg-white p-4 shadow-[0_20px_80px_rgba(0,0,0,0.08)] transition-[border-color,box-shadow] duration-200 ease-out md:p-5"
+        className="ma-composer-glow mx-auto w-full max-w-3xl rounded-2xl border border-neutral-200 bg-white p-3 shadow-[0_20px_80px_rgba(0,0,0,0.08)] transition-[border-color,box-shadow] duration-200 ease-out sm:rounded-[32px] sm:p-4 md:p-5"
       >
         <textarea
           ref={textareaRef}
@@ -104,7 +104,7 @@ export const LandingComposer = () => {
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-label="Ask anything with MicroAgent"
-          className="block min-h-[52px] w-full resize-none border-0 bg-transparent p-1 text-left text-[16px] leading-6 text-[#111111] outline-none placeholder:text-[#9CA3AF] focus:ring-0 md:text-[17px]"
+          className="block min-h-[44px] w-full resize-none border-0 bg-transparent p-1 text-left text-[15px] leading-5 text-[#111111] outline-none placeholder:text-[#9CA3AF] focus:ring-0 sm:min-h-[52px] sm:text-[16px] md:text-[17px]"
         />
 
         <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">

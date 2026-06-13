@@ -27,7 +27,7 @@ export default function LandingPage() {
       <LandingNav />
 
       {/* ===== Hero ===== */}
-      <section className="relative z-10 flex min-h-[90vh] flex-col items-center justify-center px-5 pb-16 pt-28 md:min-h-screen md:px-8">
+      <section className="relative z-10 flex min-h-[85vh] flex-col items-center justify-center px-4 pt-24 pb-12 sm:min-h-[90vh] sm:px-6 sm:pt-28 md:min-h-screen md:px-8">
         {/* Background visual layer */}
         <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
           {!videoFailed && (
@@ -53,7 +53,7 @@ export default function LandingPage() {
             animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
             data-testid="hero-headline"
-            className="ma-title-gradient mb-6 min-h-[2.1em] select-none whitespace-pre-wrap font-heading text-5xl font-semibold leading-[0.98] tracking-[-0.065em] sm:text-6xl md:text-7xl lg:text-[92px]"
+            className="ma-title-gradient mb-4 min-h-[1.8em] select-none whitespace-pre-wrap font-heading text-4xl font-semibold leading-[0.98] tracking-[-0.065em] sm:text-5xl sm:mb-6 md:text-6xl lg:text-[92px]"
           >
             {displayed}
             {!done && (
@@ -67,7 +67,7 @@ export default function LandingPage() {
             animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={{ duration: 0.55, ease: "easeOut", delay: 0.15 }}
             data-testid="hero-description"
-            className="ma-text-balance mx-auto mb-10 max-w-2xl text-lg font-medium leading-relaxed text-[#5F6673] md:text-xl"
+            className="ma-text-balance mx-auto mb-6 max-w-xl text-base font-medium leading-relaxed text-[#5F6670] sm:mb-8 sm:text-lg md:text-xl"
           >
             A calmer command center for switching models, streaming answers,
             comparing output, and keeping every AI workflow in one polished place.
