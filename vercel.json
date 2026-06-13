@@ -3,12 +3,6 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/build",
   "framework": null,
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.12",
-      "includeFiles": "backend/**"
-    }
-  },
   "rewrites": [
     {
       "source": "/((?!api/).*)",
@@ -30,19 +24,6 @@
         {
           "key": "X-XSS-Protection",
           "value": "1; mode=block"
-        }
-      ]
-    },
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
-        },
-        {
-          "key": "X-Accel-Buffering",
-          "value": "no"
         }
       ]
     }
