@@ -13,33 +13,31 @@ import {
   AUTO_PICKED_MODEL_ID,
   DEFAULT_ROOM,
   QUICK_CHIPS,
-  buildMockAnswer,
-  EXAMPLE_USER_PROMPT,
-  EXAMPLE_ASSISTANT_TEXT,
-  DYNAMIC_ISLAND_CODE,
 } from "@/lib/workspaceData";
+import { streamChat } from "@/lib/chatApi";
 
-let idCounter = 0;
-const nextId = () => `msg-${Date.now()}-${idCounter++}`;
+const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
 
-const EXAMPLE_CONVERSATION = [
-  {
-    id: "example-user",
-    role: "user",
-    text: EXAMPLE_USER_PROMPT,
-  },
-  {
-    id: "example-assistant",
-    role: "assistant",
-    state: "completed",
-    model: getModelById("deepseek-v4-pro"),
-    autoMode: false,
-    status: "just now",
-    text: EXAMPLE_ASSISTANT_TEXT,
-    code: DYNAMIC_ISLAND_CODE,
-    prompt: EXAMPLE_USER_PROMPT,
-  },
-];
+const makeTitleTopic = (text = "") => {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (!clean) return "New Chat";
+  return clean.length > 58 ? `${clean.slice(0, 58).trim()}…` : clean;
+};
+
+const toProviderMessages = (messages, nextUserText = null) => {
+  const base = messages
+    .filter((m) => (m.role === "user" || m.role === "assistant") && m.text?.trim())
+    .map((m) => ({
+      role: m.role,
+      content: m.text,
+    }));
+
+  if (nextUserText) {
+    base.push({ role: "user", content: nextUserText });
+  }
+
+  return base;
+};
 
 export default function ChatInterface() {
   const location = useLocation();
@@ -54,29 +52,17 @@ export default function ChatInterface() {
     getModelById(seed?.modelId || DEFAULT_MODEL_ID),
   );
   const [autoMode, setAutoMode] = useState(seed?.autoMode || false);
+  const [webSearch, setWebSearch] = useState(seed?.webSearch || false);
   const [activeChip, setActiveChip] = useState(seed?.chipId || null);
   const [room, setRoom] = useState(
     QUICK_CHIPS.find((c) => c.id === seed?.chipId)?.room || DEFAULT_ROOM,
   );
-  const [messages, setMessages] = useState(() =>
-    seed?.prompt ? [] : EXAMPLE_CONVERSATION,
-  );
+  const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const timersRef = useRef([]);
-  const intervalRef = useRef(null);
   const seededRef = useRef(false);
   const scrollRef = useRef(null);
-  const retriedRef = useRef(new Set());
-
-  const clearTimers = useCallback(() => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
+  const abortRef = useRef(null);
 
   const updateMessage = useCallback((id, patch) => {
     setMessages((prev) =>
@@ -84,91 +70,173 @@ export default function ChatInterface() {
     );
   }, []);
 
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const title = makeTitleTopic(
+    [...messages].reverse().find((m) => m.role === "user")?.text,
+  );
+
+  useEffect(() => {
+    document.title = title ? `${title} — MicroAgent` : "MicroAgent — AI Workspace";
+    return () => {
+      document.title = "MicroAgent — AI Super Workspace";
+    };
+  }, [title]);
+
   const runGeneration = useCallback(
     (assistantId, prompt, opts = {}) => {
-      const { forceSuccess = false, roomAtSend = DEFAULT_ROOM, cost = 0 } = opts;
-      const shouldFail =
-        !forceSuccess &&
-        /\berror\b/i.test(prompt) &&
-        !retriedRef.current.has(assistantId);
-
+      const {
+        roomAtSend = DEFAULT_ROOM,
+        cost = 0,
+        usedModel,
+        contextMessages = [],
+        webSearchAtSend = false,
+      } = opts;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setIsGenerating(true);
 
-      // pending -> thinking
-      timersRef.current.push(
-        setTimeout(() => {
-          updateMessage(assistantId, { state: "thinking" });
-        }, 500),
-      );
+      let receivedToken = false;
+      let thinkingSteps = [];
 
-      if (shouldFail) {
-        timersRef.current.push(
-          setTimeout(() => {
-            updateMessage(assistantId, { state: "error" });
-            setIsGenerating(false);
-          }, 2300),
-        );
-        return;
-      }
-
-      const answer = buildMockAnswer(prompt, roomAtSend);
-      const words = answer.text.split(" ");
-
-      // thinking -> streaming
-      timersRef.current.push(
-        setTimeout(() => {
-          updateMessage(assistantId, { state: "streaming", text: "" });
-          let i = 0;
-          intervalRef.current = setInterval(() => {
-            i += 2;
-            const partial = words.slice(0, i).join(" ");
-            if (i >= words.length) {
-              clearInterval(intervalRef.current);
-              intervalRef.current = null;
-              updateMessage(assistantId, {
-                state: "completed",
-                text: answer.text,
-                code: answer.code,
-                status: "just now",
-              });
-              setCredits((c) => Math.max(0, c - cost));
-              setIsGenerating(false);
-            } else {
-              updateMessage(assistantId, { text: partial });
-            }
-          }, 50);
-        }, 2100),
-      );
+      streamChat({
+        messages: contextMessages,
+        modelId: usedModel?.id,
+        autoMode,
+        room: roomAtSend,
+        webSearch: webSearchAtSend,
+        signal: controller.signal,
+        onMeta: (meta) => {
+          updateMessage(assistantId, {
+            providerModel: meta.model,
+            status: "connected",
+          });
+        },
+        onStatus: (status) => {
+          if (status.phase === "web_search" && status.status === "started") {
+            const step = status.message || `Searching the web for: ${status.query || prompt}`;
+            thinkingSteps = [...thinkingSteps, step].filter(Boolean);
+            updateMessage(assistantId, {
+              state: "thinking",
+              status: "searching web...",
+              thinkingSteps,
+            });
+          }
+          if (status.phase === "web_search" && status.status === "results") {
+            const resultSteps = (status.results || [])
+              .slice(0, 6)
+              .map((result) => ({
+                type: "web_result",
+                title: result.title || result.url,
+                url: result.url,
+              }));
+            thinkingSteps = [...thinkingSteps, ...resultSteps].filter(Boolean);
+            updateMessage(assistantId, {
+              state: "thinking",
+              status: "reading sources...",
+              thinkingSteps,
+            });
+          }
+          if (status.phase === "web_fetch" && status.status === "completed") {
+            const step = status.message || "Fetched web sources for synthesis.";
+            thinkingSteps = [...thinkingSteps, step, "Synthesizing answer from web context."].filter(Boolean);
+            updateMessage(assistantId, {
+              state: "thinking",
+              status: "synthesizing...",
+              thinkingSteps,
+            });
+          }
+        },
+        onThinking: (step) => {
+          thinkingSteps = [...thinkingSteps, step].filter(Boolean);
+          updateMessage(assistantId, {
+            state: "thinking",
+            thinkingSteps,
+            status: "thinking",
+          });
+        },
+        onToken: (token) => {
+          if (!token) return;
+          receivedToken = true;
+          updateMessage(assistantId, {
+            state: "streaming",
+            status: "streaming",
+          });
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, text: `${m.text || ""}${token}` } : m,
+            ),
+          );
+        },
+        onDone: () => {
+          if (receivedToken) {
+            updateMessage(assistantId, {
+              state: "completed",
+              status: "just now",
+            });
+          } else {
+            updateMessage(assistantId, {
+              state: "completed",
+              status: "just now",
+              text: "No response content received.",
+            });
+          }
+          setCredits((c) => Math.max(0, c - cost));
+          setIsGenerating(false);
+          abortRef.current = null;
+        },
+        onError: (err) => {
+          updateMessage(assistantId, {
+            state: "error",
+            status: "failed",
+            error: err.message || "Streaming failed",
+          });
+          setIsGenerating(false);
+          abortRef.current = null;
+          toast("Generation failed", {
+            description: err.message || "Provider stream failed",
+          });
+        },
+      });
     },
-    [updateMessage],
+    [autoMode, updateMessage],
   );
 
   const sendMessage = useCallback(
-    (text) => {
-      const userMsg = { id: nextId(), role: "user", text };
-      const usedModel = autoMode
-        ? getModelById(AUTO_PICKED_MODEL_ID)
-        : model;
+    (text, attachments = []) => {
+      const userMsg = { id: nextId(), role: "user", text, webSearch };
+      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
       const assistantMsg = {
         id: nextId(),
         role: "assistant",
         state: "pending",
         model: usedModel,
         autoMode,
+        webSearch,
         text: "",
         code: null,
         prompt: text,
+        thinkingSteps: [],
       };
+      const contextMessages = toProviderMessages(messages, text);
+
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       runGeneration(assistantMsg.id, text, {
         roomAtSend: room,
-        cost: usedModel.credits,
+        cost: usedModel.credits || 0,
+        usedModel,
+        attachments,
+        contextMessages,
+        webSearchAtSend: webSearch,
       });
     },
-    [autoMode, model, room, runGeneration],
+    [autoMode, model, messages, room, runGeneration, webSearch],
   );
 
-  // Seed conversation from Home navigation (StrictMode-safe)
   useEffect(() => {
     if (seed?.prompt && !seededRef.current) {
       seededRef.current = true;
@@ -178,30 +246,26 @@ export default function ChatInterface() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll to bottom as messages change
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   const handleStop = () => {
-    clearTimers();
+    abortRef.current?.abort();
+    abortRef.current = null;
     const generatingMsg = messages.find(
       (m) =>
         m.role === "assistant" &&
-        (m.state === "pending" ||
-          m.state === "thinking" ||
-          m.state === "streaming"),
+        (m.state === "pending" || m.state === "thinking" || m.state === "streaming"),
     );
     if (generatingMsg) {
-      setCredits((c) => Math.max(0, c - generatingMsg.model.credits));
+      setCredits((c) => Math.max(0, c - (generatingMsg.model.credits || 0)));
     }
     setMessages((prev) =>
       prev.map((m) =>
         m.role === "assistant" &&
-        (m.state === "pending" ||
-          m.state === "thinking" ||
-          m.state === "streaming")
+        (m.state === "pending" || m.state === "thinking" || m.state === "streaming")
           ? {
               ...m,
               state: "completed",
@@ -217,14 +281,25 @@ export default function ChatInterface() {
   };
 
   const handleRetry = (messageId) => {
-    retriedRef.current.add(messageId);
     const msg = messages.find((m) => m.id === messageId);
     if (!msg) return;
-    updateMessage(messageId, { state: "pending", text: "" });
+    const priorMessages = messages.filter((m) => m.id !== messageId);
+    const contextMessages = toProviderMessages(priorMessages);
+
+    updateMessage(messageId, {
+      state: "pending",
+      text: "",
+      code: null,
+      thinkingSteps: [],
+      stopped: false,
+      error: null,
+    });
     runGeneration(messageId, msg.prompt, {
-      forceSuccess: true,
       roomAtSend: room,
-      cost: msg.model.credits,
+      cost: msg.model.credits || 0,
+      usedModel: msg.model,
+      contextMessages,
+      webSearchAtSend: msg.webSearch || false,
     });
   };
 
@@ -281,41 +356,36 @@ export default function ChatInterface() {
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
         }`}
       >
-        <ChatTopBar title="New Chat" room={room} credits={credits} />
+        <ChatTopBar title={title} room={room} credits={credits} />
 
-        {/* Messages */}
         <main
           ref={scrollRef}
           data-testid="chat-messages"
           className="min-h-0 flex-1 overflow-y-auto scroll-smooth"
         >
           <div className="mx-auto flex w-full max-w-[860px] flex-col gap-6 px-4 py-8 sm:px-6">
+            {messages.length === 0 && (
+              <div className="mx-auto mt-[12vh] max-w-md rounded-[28px] border border-[#E5E7EB] bg-white p-6 text-center shadow-[0_1px_2px_rgba(17,24,39,0.04)]">
+                <p className="text-sm font-semibold text-[#111111]">Start a real 9router chat</p>
+                <p className="mt-2 text-sm leading-relaxed text-[#6B7280]">
+                  Pick a model, type a prompt, and MicroAgent will stream the response from your configured provider.
+                </p>
+              </div>
+            )}
             {messages.map((m) =>
               m.role === "user" ? (
                 <UserMessage key={m.id} message={m} />
               ) : (
-                <AssistantMessage
-                  key={m.id}
-                  message={m}
-                  onRetry={handleRetry}
-                />
+                <AssistantMessage key={m.id} message={m} onRetry={handleRetry} />
               ),
             )}
           </div>
         </main>
 
-        {/* Composer */}
         <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[84px] pt-2 md:pb-5">
-          <div
-            className="mx-auto w-full max-w-[860px] px-4 sm:px-6"
-            data-testid="chat-composer"
-          >
+          <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6" data-testid="chat-composer">
             <div className="mb-3">
-              <QuickChips
-                compact
-                activeChip={activeChip}
-                onChipClick={handleChipClick}
-              />
+              <QuickChips compact activeChip={activeChip} onChipClick={handleChipClick} />
             </div>
             <PromptComposer
               compact
@@ -327,6 +397,8 @@ export default function ChatInterface() {
               autoMode={autoMode}
               onModelSelect={handleModelSelect}
               onAutoModeToggle={handleAutoModeToggle}
+              webSearchEnabled={webSearch}
+              onWebSearchToggle={() => setWebSearch((value) => !value)}
             />
           </div>
         </footer>

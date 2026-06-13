@@ -2,19 +2,8 @@ import { useEffect, useState } from "react";
 import { Wand2, Zap, CircleAlert, RotateCcw } from "lucide-react";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { CodeBlock } from "@/components/chat/CodeBlock";
-
-const ModelDot = ({ color, size = 10 }) => (
-  <span
-    aria-hidden="true"
-    className="inline-block shrink-0 rounded-full"
-    style={{
-      width: size,
-      height: size,
-      background: color,
-      boxShadow: `0 0 0 3px ${color}1f`,
-    }}
-  />
-);
+import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { ModelIcon } from "@/components/workspace/ModelIcon";
 
 export const UserMessage = ({ message }) => (
   <div className="ma-msg-in flex justify-end" data-testid="user-message">
@@ -36,7 +25,7 @@ const AssistantHeader = ({ message }) => {
       className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5"
     >
       <span className="grid h-6 w-6 place-items-center rounded-lg border border-[#F0F1F3] bg-[#FAFAFA]">
-        <ModelDot color={message.model.color} size={9} />
+        <ModelIcon model={message.model} size={18} />
       </span>
       <span
         data-testid="assistant-model-name"
@@ -159,10 +148,10 @@ export const AssistantMessage = ({ message, onRetry }) => {
 
             {(message.state === "streaming" ||
               message.state === "completed") && (
-              <div className="text-[15px] leading-[1.75] text-[#1F2937]">
-                {message.text}
+              <div className="relative">
+                <MarkdownMessage text={message.text} />
                 {message.state === "streaming" && (
-                  <span className="ma-caret" aria-hidden="true" />
+                  <span className="ma-caret ml-0.5 align-baseline" aria-hidden="true" />
                 )}
               </div>
             )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { useTypewriter } from "@/hooks/useTypewriter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { LandingComposer } from "@/components/landing/LandingComposer";
@@ -19,40 +19,41 @@ const VIDEO_SRC =
 
 export default function LandingPage() {
   const { displayed, done } = useTypewriter(HEADLINE, 38, 600);
+  const reduceMotion = useReducedMotion();
   const [videoFailed, setVideoFailed] = useState(false);
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-white font-sans text-neutral-900 antialiased selection:bg-[#EAECE9] selection:text-[#1C2E1E]">
+    <div className="ma-soft-grid relative min-h-screen overflow-x-hidden bg-[#F6F7F9] font-sans text-neutral-900 antialiased selection:bg-[#EAECE9] selection:text-[#1C2E1E]">
       <LandingNav />
 
       {/* ===== Hero ===== */}
-      <section className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 pb-16 pt-28">
+      <section className="relative z-10 flex min-h-[90vh] flex-col items-center justify-center px-5 pb-16 pt-28 md:min-h-screen md:px-8">
         {/* Background visual layer */}
         <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
           {!videoFailed && (
             <video
               className="h-full w-full object-cover object-right-bottom opacity-25"
               src={VIDEO_SRC}
-              autoPlay
+              autoPlay={!reduceMotion}
               muted
               playsInline
-              preload="auto"
-              loop
+              preload="metadata"
+              loop={!reduceMotion}
               onError={() => setVideoFailed(true)}
             />
           )}
           {videoFailed && <div className="ma-hero-glow ma-glow-pulse" />}
-          <div className="absolute inset-0 bg-gradient-to-b from-white/70 via-white/90 to-white" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(125,211,252,0.16),transparent_34%),radial-gradient(circle_at_70%_24%,rgba(196,181,253,0.14),transparent_38%),linear-gradient(to_bottom,rgba(246,247,249,0.62),rgba(246,247,249,0.92),#F6F7F9)]" />
         </div>
 
         <div className="relative z-10 mx-auto w-full max-w-5xl text-center">
           {/* Typewriter headline */}
           <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 20 }}
+            animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
             data-testid="hero-headline"
-            className="mb-6 min-h-[2.1em] select-none whitespace-pre-wrap text-5xl font-normal leading-[1.02] tracking-tight text-black md:text-7xl lg:text-[88px]"
+            className="ma-title-gradient mb-6 min-h-[2.1em] select-none whitespace-pre-wrap font-heading text-5xl font-semibold leading-[0.98] tracking-[-0.065em] sm:text-6xl md:text-7xl lg:text-[92px]"
           >
             {displayed}
             {!done && (
@@ -62,15 +63,14 @@ export default function LandingPage() {
 
           {/* Description */}
           <motion.p
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+            animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={{ duration: 0.55, ease: "easeOut", delay: 0.15 }}
             data-testid="hero-description"
-            className="mx-auto mb-10 max-w-3xl text-lg font-normal leading-relaxed text-[#5A635A] md:text-xl"
+            className="ma-text-balance mx-auto mb-10 max-w-2xl text-lg font-medium leading-relaxed text-[#5F6673] md:text-xl"
           >
-            Chat with multiple AI models, auto-select the best model, compare
-            answers, upload files, and work inside AI Rooms — all from one
-            simple workspace.
+            A calmer command center for switching models, streaming answers,
+            comparing output, and keeping every AI workflow in one polished place.
           </motion.p>
 
           {/* Prompt composer + chips */}

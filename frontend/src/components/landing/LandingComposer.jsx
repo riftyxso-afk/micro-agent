@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Paperclip,
   Globe,
@@ -11,23 +11,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ModelPicker } from "@/components/workspace/ModelPicker";
-import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS } from "@/lib/workspaceData";
-
-const ModelDot = ({ color, size = 10 }) => (
-  <span
-    aria-hidden="true"
-    className="inline-block shrink-0 rounded-full"
-    style={{
-      width: size,
-      height: size,
-      background: color,
-      boxShadow: `0 0 0 3px ${color}1f`,
-    }}
-  />
-);
+import { ModelIcon } from "@/components/workspace/ModelIcon";
+import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS, AUTO_MODEL } from "@/lib/workspaceData";
 
 export const LandingComposer = () => {
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
+  const textareaRef = useRef(null);
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState(() => getModelById(DEFAULT_MODEL_ID));
   const [isAutoMode, setIsAutoMode] = useState(false);
@@ -37,17 +27,39 @@ export const LandingComposer = () => {
 
   const hasContent = prompt.trim().length > 0;
   const activeChipData = QUICK_CHIPS.find((c) => c.id === activeChip);
+
+  const autoresize = (el) => {
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 156)}px`;
+  };
+
+  useEffect(() => {
+    if (textareaRef.current) autoresize(textareaRef.current);
+  }, [prompt]);
   const placeholder = activeChipData
     ? activeChipData.hint
     : "Ask anything with MicroAgent";
 
   function handleSubmit() {
+    const params = new URLSearchParams();
     const cleanPrompt = prompt.trim();
     if (cleanPrompt.length > 0) {
-      navigate(`/home?prompt=${encodeURIComponent(cleanPrompt)}`);
-    } else {
-      navigate("/home");
+      params.set("prompt", cleanPrompt);
     }
+    if (model && !isAutoMode) {
+      params.set("modelId", model.id);
+    }
+    if (isAutoMode) {
+      params.set("autoMode", "1");
+    }
+    if (activeChip) {
+      params.set("chipId", activeChip);
+    }
+    if (webSearch) {
+      params.set("webSearch", "1");
+    }
+    const qs = params.toString();
+    navigate(qs ? `/home?${qs}` : "/home");
   }
 
   const handleKeyDown = (e) => {
@@ -74,21 +86,25 @@ export const LandingComposer = () => {
     <div className="w-full">
       {/* Composer card */}
       <motion.div
-        initial={{ opacity: 0, y: 18, scale: 0.985 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
+        initial={reduceMotion ? false : { opacity: 0, y: 18, scale: 0.985 }}
+        animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98], delay: 0.25 }}
         data-testid="landing-composer"
-        className="ma-composer-glow mx-auto w-full max-w-3xl rounded-[32px] border border-neutral-200 bg-white p-4 shadow-[0_20px_80px_rgba(0,0,0,0.08)] md:p-5"
+        className="ma-composer-glow mx-auto w-full max-w-3xl rounded-[32px] border border-neutral-200 bg-white p-4 shadow-[0_20px_80px_rgba(0,0,0,0.08)] transition-[border-color,box-shadow] duration-200 ease-out md:p-5"
       >
         <textarea
+          ref={textareaRef}
           data-testid="landing-composer-textarea"
-          rows={2}
+          rows={1}
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => {
+            setPrompt(e.target.value);
+            autoresize(e.target);
+          }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-label="Ask anything with MicroAgent"
-          className="block min-h-[56px] w-full resize-none border-0 bg-transparent p-1.5 text-left text-[16px] leading-6 text-[#111111] outline-none placeholder:text-[#9CA3AF] focus:ring-0 md:text-[17px]"
+          className="block min-h-[52px] w-full resize-none border-0 bg-transparent p-1 text-left text-[16px] leading-6 text-[#111111] outline-none placeholder:text-[#9CA3AF] focus:ring-0 md:text-[17px]"
         />
 
         <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
@@ -136,14 +152,12 @@ export const LandingComposer = () => {
             >
               {isAutoMode ? (
                 <>
-                  <span className="ma-logo-mark grid h-[18px] w-[18px] place-items-center rounded-md">
-                    <Wand2 size={11} strokeWidth={2.25} className="text-white" />
-                  </span>
+                  <ModelIcon model={AUTO_MODEL} size={22} />
                   <span data-testid="model-selector-label">Auto Select Model</span>
                 </>
               ) : (
                 <>
-                  <ModelDot color={model.color} />
+                  <ModelIcon model={model} size={22} />
                   <span data-testid="model-selector-label" className="hidden sm:inline">
                     {model.name}
                   </span>
@@ -183,10 +197,10 @@ export const LandingComposer = () => {
               aria-label="Send prompt"
               disabled={!hasContent}
               onClick={handleSubmit}
-              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] ${
+              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.94] ${
                 hasContent
-                  ? "bg-black text-white shadow-[0_4px_14px_rgba(0,0,0,0.25)] hover:scale-105"
-                  : "cursor-default bg-neutral-200 text-neutral-500"
+                  ? "bg-black text-white shadow-[0_4px_14px_rgba(0,0,0,0.25)] hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-[0_7px_22px_rgba(0,0,0,0.26)]"
+                  : "cursor-not-allowed bg-neutral-200 text-neutral-500"
               }`}
             >
               <ArrowUp size={18} strokeWidth={2.25} />
@@ -197,8 +211,8 @@ export const LandingComposer = () => {
 
       {/* Quick action chips */}
       <motion.div
-        initial="hidden"
-        animate="show"
+        initial={reduceMotion ? false : "hidden"}
+        animate={reduceMotion ? undefined : "show"}
         variants={{
           hidden: {},
           show: { transition: { staggerChildren: 0.07, delayChildren: 0.55 } },

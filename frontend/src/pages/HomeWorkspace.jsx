@@ -8,20 +8,36 @@ import { UserMenu } from "@/components/workspace/UserMenu";
 import { PromptComposer } from "@/components/workspace/PromptComposer";
 import { QuickChips } from "@/components/workspace/QuickChips";
 import { Logo } from "@/components/workspace/Logo";
-import { getModelById, DEFAULT_MODEL_ID } from "@/lib/workspaceData";
+import { HistoryDialog } from "@/components/workspace/HistoryDialog";
+import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
+import { MoreDialog } from "@/components/workspace/MoreDialog";
+import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS } from "@/lib/workspaceData";
 
 export default function HomeWorkspace() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialPrompt = searchParams.get("prompt") || "";
+  const initialModelId = searchParams.get("modelId") || DEFAULT_MODEL_ID;
+  const initialAutoMode = searchParams.get("autoMode") === "1";
+  const initialChipId = searchParams.get("chipId");
+  const initialChip = QUICK_CHIPS.find((chip) => chip.id === initialChipId);
+  const initialWebSearch = searchParams.get("webSearch") === "1";
 
   const [activeNav, setActiveNav] = useState("new");
+  const [activeDialog, setActiveDialog] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [activeChip, setActiveChip] = useState(null);
-  const [placeholder, setPlaceholder] = useState("Ask anything");
-  const [model, setModel] = useState(() => getModelById(DEFAULT_MODEL_ID));
-  const [autoMode, setAutoMode] = useState(false);
+  const [activeChip, setActiveChip] = useState(initialChip?.id || null);
+  const [placeholder, setPlaceholder] = useState(initialChip?.hint || "Ask anything");
+  const [model, setModel] = useState(() => getModelById(initialModelId));
+  const [autoMode, setAutoMode] = useState(initialAutoMode);
   const reduceMotion = useReducedMotion();
+
+  const handleNavChange = (navId) => {
+    setActiveNav(navId);
+    if (navId === "history" || navId === "projects" || navId === "more") {
+      setActiveDialog(navId);
+    }
+  };
 
   const handleChipClick = (chip) => {
     if (activeChip === chip.id) {
@@ -78,7 +94,7 @@ export default function HomeWorkspace() {
 
       <Sidebar
         activeNav={activeNav}
-        onNavChange={setActiveNav}
+        onNavChange={handleNavChange}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
       />
@@ -113,6 +129,7 @@ export default function HomeWorkspace() {
             <PromptComposer
               placeholder={placeholder}
               initialValue={initialPrompt}
+              initialWebSearch={initialWebSearch}
               onSend={handleSend}
               model={model}
               autoMode={autoMode}
@@ -127,7 +144,20 @@ export default function HomeWorkspace() {
         </div>
       </main>
 
-      <MobileNav activeNav={activeNav} onNavChange={setActiveNav} />
+      <MobileNav activeNav={activeNav} onNavChange={handleNavChange} />
+
+      <HistoryDialog
+        open={activeDialog === "history"}
+        onOpenChange={(open) => setActiveDialog(open ? "history" : null)}
+      />
+      <ProjectsDialog
+        open={activeDialog === "projects"}
+        onOpenChange={(open) => setActiveDialog(open ? "projects" : null)}
+      />
+      <MoreDialog
+        open={activeDialog === "more"}
+        onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
+      />
     </div>
   );
 }

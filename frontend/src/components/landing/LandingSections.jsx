@@ -19,6 +19,8 @@ import {
   CircleCheck,
 } from "lucide-react";
 import { Logo } from "@/components/workspace/Logo";
+import { MODELS } from "@/lib/workspaceData";
+import { ModelIcon } from "@/components/workspace/ModelIcon";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -53,19 +55,6 @@ const SectionHeading = ({ title, description }) => (
       </p>
     )}
   </motion.div>
-);
-
-const ModelDot = ({ color, size = 10 }) => (
-  <span
-    aria-hidden="true"
-    className="inline-block shrink-0 rounded-full"
-    style={{
-      width: size,
-      height: size,
-      background: color,
-      boxShadow: `0 0 0 3px ${color}1f`,
-    }}
-  />
 );
 
 /* ============ Features ============ */
@@ -122,7 +111,7 @@ export const FeaturesSection = () => (
           <motion.div
             key={f.title}
             variants={fadeUp}
-            className="group rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
+            className="group rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm transition-[box-shadow,transform] duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
           >
             <span className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-[#F4F6FB] text-[#4D6BFE] transition-transform duration-200 ease-out group-hover:scale-105">
               <Icon size={20} strokeWidth={1.75} />
@@ -173,6 +162,13 @@ const ROOMS = [
   },
 ];
 
+const ROOM_CHIP_MAP = {
+  research: "research",
+  study: "solve",
+  content: "create",
+  code: "create",
+};
+
 export const RoomsSection = () => {
   const navigate = useNavigate();
   return (
@@ -195,7 +191,7 @@ export const RoomsSection = () => {
             <motion.div
               key={room.id}
               variants={fadeUp}
-              className="flex flex-col rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
+              className="flex flex-col rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm transition-[box-shadow,transform] duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
             >
               <span className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#E0F2FE] to-[#EDE9FE] text-[#4338CA]">
                 <Icon size={20} strokeWidth={1.75} />
@@ -212,8 +208,11 @@ export const RoomsSection = () => {
               <button
                 type="button"
                 data-testid={`room-start-${room.id}`}
-                onClick={() => navigate("/home")}
-                className="ma-focus mt-4 inline-flex h-9 w-fit items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-4 text-[13px] font-medium text-[#111111] transition-all duration-150 ease-out hover:bg-[#F7F7F8] hover:shadow-sm active:scale-[0.98]"
+                onClick={() => {
+                  const chipId = ROOM_CHIP_MAP[room.id];
+                  navigate(chipId ? `/home?chipId=${chipId}` : "/home");
+                }}
+                className="ma-focus mt-4 inline-flex h-9 w-fit items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-4 text-[13px] font-medium text-[#111111] transition-[background-color,box-shadow,transform] duration-150 ease-out hover:bg-[#F7F7F8] hover:shadow-sm active:scale-[0.98]"
               >
                 Start
                 <ArrowRight size={13} strokeWidth={2} />
@@ -228,14 +227,15 @@ export const RoomsSection = () => {
 
 /* ============ Credit System ============ */
 
-const CREDIT_MODELS = [
-  { name: "Gemini Flash Lite", credits: 1, color: "#4285F4", tag: "Fastest everyday answers" },
-  { name: "Claude Haiku", credits: 5, color: "#D97757", tag: "Crisp, natural writing" },
-  { name: "DeepSeek v4 Pro", credits: 5, color: "#4D6BFE", tag: "Balanced pro performance" },
-  { name: "Grok", credits: 10, color: "#1F2937", tag: "Sharp logic and code" },
-  { name: "Gemini Pro", credits: 30, color: "#1A73E8", tag: "Deep multimodal reasoning" },
-  { name: "GPT 5.5", credits: 400, color: "#10A37F", tag: "Ultra-grade frontier model", ultra: true },
-];
+// Derive credit display from shared MODELS to stay in sync with app model picker
+const CREDIT_MODELS = MODELS.filter((m) => m.id !== "minimax-m2-7").map((m) => ({
+  id: m.id,
+  name: m.name,
+  credits: m.credits,
+  color: m.color,
+  tag: m.tag,
+  ultra: m.isExpensive || false,
+}));
 
 export const CreditsSection = () => (
   <SectionShell id="credits">
@@ -255,10 +255,10 @@ export const CreditsSection = () => (
         <motion.div
           key={m.name}
           variants={fadeUp}
-          className="flex items-center gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
+          className="flex items-center gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm transition-[box-shadow,transform] duration-200 ease-out hover:-translate-y-1 hover:shadow-md"
         >
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#F0F1F3] bg-[#FAFAFA]">
-            <ModelDot color={m.color} size={11} />
+            <ModelIcon model={m} size={24} />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex items-center gap-1.5 truncate text-[14.5px] font-semibold text-[#111111]">
@@ -317,7 +317,7 @@ export const CompareSection = () => {
           {/* DeepSeek card */}
           <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
-              <ModelDot color="#4D6BFE" size={9} />
+              <ModelIcon model={MODELS.find((m) => m.id === "deepseek-v4-pro")} size={18} />
               <span className="text-[13.5px] font-medium text-[#111111]">
                 DeepSeek v4 Pro
               </span>
@@ -334,7 +334,7 @@ export const CompareSection = () => {
           {/* Gemini card */}
           <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
-              <ModelDot color="#1A73E8" size={9} />
+              <ModelIcon model={MODELS.find((m) => m.id === "gemini-3-1-pro")} size={18} />
               <span className="text-[13.5px] font-medium text-[#111111]">
                 Gemini 3.1 Pro
               </span>
@@ -356,7 +356,7 @@ export const CompareSection = () => {
             data-testid="combine-answer-button"
             onClick={() => setCombined(true)}
             disabled={combined}
-            className={`ma-focus inline-flex h-11 items-center gap-2 rounded-full px-6 text-[14.5px] font-medium transition-all duration-200 ease-out active:scale-[0.98] ${
+            className={`ma-focus inline-flex h-11 items-center gap-2 rounded-full px-6 text-[14.5px] font-medium transition-[box-shadow,transform] duration-200 ease-out active:scale-[0.98] ${
               combined
                 ? "cursor-default border border-neutral-200 bg-white text-[#9CA3AF]"
                 : "bg-black text-white shadow-[0_4px_14px_rgba(0,0,0,0.2)] hover:bg-neutral-800 hover:shadow-[0_6px_20px_rgba(0,0,0,0.25)]"
@@ -436,7 +436,7 @@ export const UploadSection = () => (
         </div>
         <div className="rounded-3xl rounded-bl-lg border border-neutral-200 bg-white px-4 py-3 text-[13.5px] leading-relaxed text-[#374151] shadow-sm">
           <span className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-[#6B7280]">
-            <ModelDot color="#4D6BFE" size={7} />
+            <ModelIcon model={MODELS.find((m) => m.id === "deepseek-v4-pro")} size={16} />
             DeepSeek v4 Pro · from your file
           </span>
           Q3 revenue grew 18% — page 12 attributes it to enterprise renewals
@@ -472,7 +472,7 @@ export const FinalCTASection = () => {
           type="button"
           data-testid="final-cta-button"
           onClick={() => navigate("/home")}
-          className="ma-focus relative mt-8 inline-flex h-12 items-center gap-2 rounded-full bg-black px-8 text-[15.5px] font-medium text-white shadow-[0_6px_20px_rgba(0,0,0,0.22)] transition-all duration-200 ease-out hover:bg-neutral-800 hover:shadow-[0_10px_28px_rgba(0,0,0,0.28)] active:scale-[0.98]"
+          className="ma-focus relative mt-8 inline-flex h-12 items-center gap-2 rounded-full bg-black px-8 text-[15.5px] font-medium text-white shadow-[0_6px_20px_rgba(0,0,0,0.22)] transition-[box-shadow,transform] duration-200 ease-out hover:bg-neutral-800 hover:shadow-[0_10px_28px_rgba(0,0,0,0.28)] active:scale-[0.98]"
         >
           Start for free
           <ArrowRight size={16} strokeWidth={2} />

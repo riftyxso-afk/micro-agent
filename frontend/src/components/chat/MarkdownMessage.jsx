@@ -1,0 +1,380 @@
+import { Fragment } from "react";
+
+/* ------------------------------------------------------------------ */
+/*  Inline helpers                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Split text by delimiters so we can wrap matches. */
+function tokenize(text, patterns) {
+  if (!text) return [text];
+  const joined = new RegExp(`(${patterns.map((p) => p.source).join("|")})`, "g");
+  const tokens = [];
+  let last = 0;
+  for (const match of text.matchAll(joined)) {
+    if (match.index > last) tokens.push({ t: "text", v: text.slice(last, match.index) });
+    const raw = match[0];
+    for (let i = 1; i < match.length; i++) {
+      if (match[i] !== undefined) {
+        tokens.push({ t: "match", v: raw });
+        break;
+      }
+    }
+    last = match.index + raw.length;
+  }
+  if (last < text.length) tokens.push({ t: "text", v: text.slice(last) });
+  return tokens;
+}
+
+const INLINE_PATTERNS = [
+  /`([^`]+)`/,                                         // inline code
+  /\*\*([^*]+)\*\*/,                                   // bold
+  /\*([^*]+)\*/,                                       // italic
+  /\[([^\]]+)\]\(([^)]+)\)/,                            // link
+  /!\[([^\]]*)\]\(([^)]+)\)/,                           // image
+  /~~([^~]+)~~/,                                       // strikethrough
+  /\$([^$]+)\$/,                                       // inline math $...$
+  /\\\(([\s\S]*?)\\\)/,                                // inline math \(...\)
+];
+
+const renderInline = (v) => {
+  const tokens = tokenize(v, INLINE_PATTERNS);
+  return tokens.map((tok, i) => {
+    if (tok.t !== "match") return <Fragment key={i}>{tok.v}</Fragment>;
+
+    const raw = tok.v;
+    if (raw.startsWith("`") && raw.endsWith("`")) {
+      return <code key={i} className="rounded-md bg-[#F3F4F6] px-1.5 py-0.5 font-mono text-[0.92em] text-[#111827]">{raw.slice(1, -1)}</code>;
+    }
+    if (raw.startsWith("**") && raw.endsWith("**")) return <strong key={i}>{raw.slice(2, -2)}</strong>;
+    if (raw.startsWith("~~") && raw.endsWith("~~")) return <del key={i} className="text-[#9CA3AF]">{raw.slice(2, -2)}</del>;
+    if (raw.startsWith("\\(") && raw.endsWith("\\)")) return <InlineMath key={i} code={raw.slice(2, -2)} />;
+    if (raw.startsWith("$") && raw.endsWith("$")) return <InlineMath key={i} code={raw.slice(1, -1)} />;
+    if (raw.startsWith("![")) {
+      const m = raw.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      return m ? <img key={i} src={m[2]} alt={m[1] || ""} className="my-2 max-w-full rounded-xl" /> : raw;
+    }
+    if (raw.startsWith("[")) {
+      const m = raw.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      return m ? <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-[#2563EB] underline underline-offset-2 decoration-1 decoration-[#BFDBFE]">{m[1]}</a> : raw;
+    }
+    if (raw.startsWith("*") && raw.endsWith("*")) return <em key={i}>{raw.slice(1, -1)}</em>;
+    return <Fragment key={i}>{raw}</Fragment>;
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/*  Block helpers                                                      */
+/* ------------------------------------------------------------------ */
+
+const HEADING = /^(#{1,4})\s+(.+)$/;
+const HR = /^(?:---|___|\*\*\*)$/;
+const BLOCKQUOTE = /^>\s?(.*)$/;
+const UL_ITEM = /^\s*[-*+]\s+/;
+const OL_ITEM = /^\s*\d+\.\s+/;
+const TASK = /^\s*[-*+]\s+\[([ xX])\]\s+/;
+const TABLE = /^\|(.+)\|$/;
+const MATH_BLOCK = /^\$\$$/;
+const LATEX_BLOCK_START = /^\\\[$/;
+const LATEX_BLOCK_END = /^\\\]$/;
+
+const MOJIBAKE_REPLACEMENTS = [
+  [/Â²/g, "²"],
+  [/Â³/g, "³"],
+  [/Â¹/g, "¹"],
+  [/Â°/g, "°"],
+  [/Ã—/g, "×"],
+  [/Ã·/g, "÷"],
+  [/âˆ’/g, "−"],
+  [/â‰ /g, "≠"],
+  [/â‰¤/g, "≤"],
+  [/â‰¥/g, "≥"],
+  [/âˆš/g, "√"],
+  [/Ï€/g, "π"],
+];
+
+const normalizeText = (value) =>
+  MOJIBAKE_REPLACEMENTS.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    String(value || "")
+  );
+
+const looksLikeFormula = (value) =>
+  /[=+\-*/^²³¹×÷√≤≥≠()]/.test(value) && /\d|[a-z]/i.test(value);
+
+/* ------------------------------------------------------------------ */
+/*  Inline Math (simple, no KaTeX)                                     */
+/* ------------------------------------------------------------------ */
+
+const InlineMath = ({ code }) => (
+  <span className="mx-0.5 rounded bg-[#F3F4F6] px-1.5 py-0.5 font-mono text-sm text-[#6366F1] italic">
+    {code}
+  </span>
+);
+
+const MathBlock = ({ code }) => (
+  <div className="overflow-x-auto rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-4 text-center font-mono text-sm leading-relaxed text-[#6366F1]">
+    {code}
+  </div>
+);
+
+/* ------------------------------------------------------------------ */
+/*  MarkdownMessage main                                               */
+/* ------------------------------------------------------------------ */
+
+export const MarkdownMessage = ({ text = "" }) => {
+  const lines = normalizeText(text).replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let i = 0;
+  let inTable = null;
+
+  const flushParagraph = () => {
+    if (blocks.length > 0 && blocks[blocks.length - 1].type === "p") return;
+    blocks.push({ type: "p", content: "" });
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    /* ---- blank line ---- */
+    if (!trimmed) { i += 1; inTable = null; continue; }
+
+    /* ---- code fence ---- */
+    if (trimmed.startsWith("```")) {
+      const language = trimmed.slice(3).trim();
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      i += 1;
+      const content = codeLines.join("\n");
+      blocks.push({
+        type: language === "text" && looksLikeFormula(content) ? "math" : "code",
+        language,
+        content,
+      });
+      continue;
+    }
+
+    /* ---- math block $$ or \[ \] ---- */
+    if (MATH_BLOCK.test(trimmed) || LATEX_BLOCK_START.test(trimmed)) {
+      const mathLines = [];
+      const endPattern = MATH_BLOCK.test(trimmed) ? MATH_BLOCK : LATEX_BLOCK_END;
+      i += 1;
+      while (i < lines.length && !endPattern.test(lines[i].trim())) {
+        mathLines.push(lines[i].trim());
+        i += 1;
+      }
+      i += 1;
+      blocks.push({ type: "math", content: mathLines.join(" ") });
+      continue;
+    }
+
+    /* ---- single-line LaTeX display: \[ ... \] ---- */
+    if (trimmed.startsWith("\\[") && trimmed.endsWith("\\]")) {
+      blocks.push({ type: "math", content: trimmed.slice(2, -2).trim() });
+      i += 1;
+      continue;
+    }
+
+    /* ---- heading ---- */
+    const hMatch = line.match(HEADING);
+    if (hMatch) { blocks.push({ type: "heading", level: hMatch[1].length, content: hMatch[2] }); i += 1; continue; }
+
+    /* ---- hr ---- */
+    if (HR.test(trimmed)) { blocks.push({ type: "hr" }); i += 1; continue; }
+
+    /* ---- blockquote ---- */
+    const bqMatch = line.match(BLOCKQUOTE);
+    if (bqMatch) {
+      const items = [bqMatch[1]];
+      i += 1;
+      while (i < lines.length && BLOCKQUOTE.test(lines[i])) {
+        items.push(lines[i].match(BLOCKQUOTE)[1]);
+        i += 1;
+      }
+      blocks.push({ type: "blockquote", content: items.join("\n") });
+      continue;
+    }
+
+    /* ---- task list ---- */
+    if (TASK.test(line)) {
+      const items = [];
+      while (i < lines.length && TASK.test(lines[i])) {
+        const m = lines[i].match(TASK);
+        items.push({ checked: m[1] !== " ", content: lines[i].replace(TASK, "") });
+        i += 1;
+      }
+      blocks.push({ type: "task", items });
+      continue;
+    }
+
+    /* ---- unordered list ---- */
+    if (UL_ITEM.test(line)) {
+      const items = [];
+      while (i < lines.length && UL_ITEM.test(lines[i])) {
+        items.push(lines[i].replace(UL_ITEM, ""));
+        i += 1;
+      }
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    /* ---- ordered list ---- */
+    if (OL_ITEM.test(line)) {
+      const items = [];
+      while (i < lines.length && OL_ITEM.test(lines[i])) {
+        items.push(lines[i].replace(OL_ITEM, ""));
+        i += 1;
+      }
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    /* ---- table ---- */
+    const tMatch = line.match(TABLE);
+    if (tMatch && !inTable) {
+      inTable = [];
+      const headers = tMatch[1].split("|").map((c) => ({ text: c.trim(), align: "left" }));
+      i += 1;
+      // skip separator row
+      if (i < lines.length && /^\|[-| :]+\|$/.test(lines[i].trim())) {
+        const sepParts = lines[i].trim().slice(1, -1).split("|").map((c) => c.trim());
+        sepParts.forEach((part, idx) => {
+          if (headers[idx]) {
+            if (part.startsWith(":") && part.endsWith(":")) headers[idx].align = "center";
+            else if (part.endsWith(":")) headers[idx].align = "right";
+          }
+        });
+        i += 1;
+      }
+      const rows = [];
+      while (i < lines.length && TABLE.test(lines[i].trim())) {
+        const row = lines[i].trim().slice(1, -1).split("|").map((c) => c.trim());
+        rows.push(row);
+        i += 1;
+      }
+      blocks.push({ type: "table", headers, rows });
+      inTable = null;
+      continue;
+    }
+
+    /* ---- ordinary paragraph ---- */
+    const paraLines = [trimmed];
+    i += 1;
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !lines[i].trim().startsWith("```") &&
+      !MATH_BLOCK.test(lines[i].trim()) &&
+      !LATEX_BLOCK_START.test(lines[i].trim()) &&
+      !LATEX_BLOCK_END.test(lines[i].trim()) &&
+      !lines[i].trim().match(/^\\\[.*\\\]$/) &&
+      !HEADING.test(lines[i]) &&
+      !HR.test(lines[i].trim()) &&
+      !BLOCKQUOTE.test(lines[i]) &&
+      !TASK.test(lines[i]) &&
+      !UL_ITEM.test(lines[i]) &&
+      !OL_ITEM.test(lines[i]) &&
+      !TABLE.test(lines[i].trim())
+    ) {
+      paraLines.push(lines[i].trim());
+      i += 1;
+    }
+    blocks.push({ type: "p", content: paraLines.join(" ") });
+  }
+
+  return (
+    <div className="space-y-4 text-[15px] leading-[1.75] text-[#1F2937]">
+      {blocks.map((block, index) => {
+        switch (block.type) {
+          case "code":
+            return (
+              <div key={index} className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-[#0F172A]">
+                {block.language && <div className="border-b border-white/10 px-4 py-2 text-xs font-medium text-white/50">{block.language}</div>}
+                <pre className="overflow-x-auto p-4 text-sm leading-relaxed text-[#E5E7EB]"><code>{block.content}</code></pre>
+              </div>
+            );
+
+          case "math":
+            return <MathBlock key={index} code={block.content} />;
+
+          case "heading": {
+            const cls = block.level === 1 ? "text-xl font-semibold tracking-[-0.02em] text-[#111111]" :
+                         block.level === 2 ? "text-lg font-semibold tracking-[-0.01em] text-[#111111]" :
+                         block.level === 3 ? "text-base font-semibold text-[#111111]" :
+                                             "text-sm font-semibold text-[#111111]";
+            return <div key={index} className={cls}>{renderInline(block.content)}</div>;
+          }
+
+          case "hr":
+            return <hr key={index} className="border-t border-[#E5E7EB]" />;
+
+          case "blockquote":
+            return (
+              <blockquote key={index} className="border-l-4 border-[#D1D5DB] pl-4 italic text-[#6B7280]">
+                {renderInline(block.content)}
+              </blockquote>
+            );
+
+          case "task":
+            return (
+              <ul key={index} className="space-y-1.5 pl-1">
+                {block.items.map((item, itemIndex) => (
+                  <li key={itemIndex} className="flex items-start gap-2">
+                    <span className="mt-1 grid h-4 w-4 shrink-0 place-items-center rounded border border-[#D1D5DB] text-[10px]">
+                      {item.checked ? "✓" : ""}
+                    </span>
+                    <span>{renderInline(item.content)}</span>
+                  </li>
+                ))}
+              </ul>
+            );
+
+          case "ul":
+            return (
+              <ul key={index} className="list-disc space-y-1.5 pl-5 marker:text-[#9CA3AF]">
+                {block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}
+              </ul>
+            );
+
+          case "ol":
+            return (
+              <ol key={index} className="list-decimal space-y-1.5 pl-5 marker:text-[#9CA3AF]">
+                {block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}
+              </ol>
+            );
+
+          case "table":
+            return (
+              <div key={index} className="overflow-x-auto rounded-2xl border border-[#E5E7EB]">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-[#FAFAFA]">
+                      {block.headers.map((h, hIndex) => (
+                        <th key={hIndex} className={`border-r border-[#E5E7EB] px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#6B7280] text-${h.align}`}>{h.text}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, rIndex) => (
+                      <tr key={rIndex} className="border-t border-[#E5E7EB] last:border-0">
+                        {row.map((cell, cIndex) => (
+                          <td key={cIndex} className={`border-r border-[#E5E7EB] px-4 py-2.5 text-[#1F2937] text-${block.headers[cIndex]?.align || "left"}`}>{renderInline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+
+          default:
+            return <p key={index}>{renderInline(block.content)}</p>;
+        }
+      })}
+    </div>
+  );
+};

@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { ModelPicker } from "@/components/workspace/ModelPicker";
+import { ModelIcon } from "@/components/workspace/ModelIcon";
+import { AUTO_MODEL } from "@/lib/workspaceData";
 
 const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
   <Tooltip delayDuration={200}>
@@ -44,19 +46,6 @@ const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
   </Tooltip>
 );
 
-const ModelDot = ({ color, size = 10 }) => (
-  <span
-    aria-hidden="true"
-    className="inline-block shrink-0 rounded-full"
-    style={{
-      width: size,
-      height: size,
-      background: color,
-      boxShadow: `0 0 0 3px ${color}1f`,
-    }}
-  />
-);
-
 export const PromptComposer = ({
   placeholder,
   onSend,
@@ -68,15 +57,37 @@ export const PromptComposer = ({
   onAutoModeToggle,
   compact = false,
   initialValue = "",
+  initialWebSearch = false,
+  webSearchEnabled,
+  onWebSearchToggle,
 }) => {
   const [value, setValue] = useState(initialValue);
-  const [webSearch, setWebSearch] = useState(false);
+  const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const webSearch = webSearchEnabled ?? localWebSearch;
+
+  const toggleWebSearch = () => {
+    if (onWebSearchToggle) {
+      onWebSearchToggle();
+    } else {
+      setLocalWebSearch((w) => !w);
+    }
+  };
+
   const hasContent = value.trim().length > 0 || attachments.length > 0;
+
+  // Sync value when initialValue prop changes (e.g. navigating landing→home)
+  useEffect(() => {
+    setValue(initialValue);
+  }, [initialValue]);
+
+  useEffect(() => {
+    setLocalWebSearch(initialWebSearch);
+  }, [initialWebSearch]);
 
   // Resize textarea if mounted with a prefilled value (e.g. /home?prompt=...)
   useEffect(() => {
@@ -209,7 +220,7 @@ export const PromptComposer = ({
             label={webSearch ? "Web search on" : "Search the web"}
             icon={Globe}
             active={webSearch}
-            onClick={() => setWebSearch((w) => !w)}
+            onClick={toggleWebSearch}
           />
         </div>
 
@@ -225,14 +236,12 @@ export const PromptComposer = ({
           >
             {autoMode ? (
               <>
-                <span className="ma-logo-mark grid h-4.5 w-4.5 place-items-center rounded-md p-0.5">
-                  <Wand2 size={11} strokeWidth={2.25} className="text-white" />
-                </span>
+                <ModelIcon model={AUTO_MODEL} size={22} />
                 <span data-testid="model-selector-label">Auto Select Model</span>
               </>
             ) : (
               <>
-                <ModelDot color={model.color} />
+                <ModelIcon model={model} size={22} />
                 <span data-testid="model-selector-label" className="hidden sm:inline">
                   {model.name}
                 </span>
@@ -284,7 +293,7 @@ export const PromptComposer = ({
                   data-testid="stop-generation-button"
                   aria-label="Stop generating"
                   onClick={onStop}
-                  className="ma-focus grid h-10 w-10 place-items-center rounded-full bg-[#111111] text-white shadow-[0_4px_12px_rgba(17,24,39,0.25)] transition-all duration-200 ease-out hover:bg-[#2D2D2D] active:scale-[0.94]"
+                  className="ma-focus grid h-10 w-10 place-items-center rounded-full bg-[#111111] text-white shadow-[0_4px_12px_rgba(17,24,39,0.25)] transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:bg-[#2D2D2D] active:scale-[0.94]"
                 >
                   <Square size={13} strokeWidth={2.5} className="fill-white" />
                 </button>
@@ -300,7 +309,7 @@ export const PromptComposer = ({
               aria-label="Send message"
               disabled={!hasContent}
               onClick={handleSend}
-              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-all duration-200 ease-out active:scale-[0.94] ${
+              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.94] ${
                 hasContent
                   ? "bg-[#111111] text-white shadow-[0_4px_12px_rgba(17,24,39,0.25)] hover:bg-[#2D2D2D]"
                   : "cursor-default bg-[#E5E7EB] text-[#9CA3AF]"

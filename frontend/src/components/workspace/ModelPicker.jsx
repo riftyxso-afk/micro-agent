@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, Check, Zap, Wand2, TriangleAlert } from "lucide-react";
+import { Search, Check, Zap, TriangleAlert } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DEFAULT_MODEL_ID,
   getModelById,
 } from "@/lib/workspaceData";
+import { ModelIcon } from "@/components/workspace/ModelIcon";
 
 const ModelDot = ({ color, size = 10 }) => (
   <span
@@ -34,19 +35,17 @@ const ModelCard = ({ model, selected, onClick }) => (
     data-testid={`model-card-${model.id}`}
     onClick={onClick}
     aria-pressed={selected}
-    className={`ma-focus flex w-full items-center gap-3 rounded-2xl bg-white p-3.5 text-left transition-all duration-150 ease-out active:scale-[0.99] ${
+    className={`ma-focus flex w-full items-center gap-3 rounded-2xl bg-white p-3.5 text-left transition-[border-color,box-shadow,transform] duration-150 ease-out active:scale-[0.99] ${
       selected
         ? "border-2 border-[#111111] shadow-[0_2px_8px_rgba(17,24,39,0.08)]"
         : "border border-[#E5E7EB] hover:border-[#D1D5DB] hover:shadow-[0_2px_8px_rgba(17,24,39,0.05)]"
     }`}
   >
     {model.isAuto ? (
-      <span className="ma-logo-mark grid h-8 w-8 shrink-0 place-items-center rounded-xl">
-        <Wand2 size={15} strokeWidth={2} className="text-white" />
-      </span>
+      <ModelIcon model={model} size={32} />
     ) : (
       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#F0F1F3] bg-[#FAFAFA]">
-        <ModelDot color={model.color} size={11} />
+        <ModelIcon model={model} size={22} />
       </span>
     )}
     <span className="flex min-w-0 flex-1 flex-col">
@@ -196,45 +195,66 @@ export const ModelPicker = ({
         </div>
 
         {ultraWarning ? (
-          <div className="ma-fade-in flex flex-1 flex-col justify-center gap-4 px-5 py-6" data-testid="ultra-warning">
-            <div className="rounded-2xl border border-[#FDE68A] bg-[#FFFBEB] p-4">
-              <div className="flex items-start gap-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#FEF3C7]">
-                  <TriangleAlert size={17} strokeWidth={1.75} className="text-[#B45309]" />
-                </span>
+          <div className="ma-fade-in flex flex-1 flex-col justify-center gap-4 bg-[radial-gradient(circle_at_20%_0%,rgba(255,214,165,0.18),transparent_38%),radial-gradient(circle_at_100%_20%,rgba(165,180,252,0.16),transparent_34%),#050505] px-5 py-6" data-testid="ultra-warning">
+            <div className="overflow-hidden rounded-[28px] border border-white/14 bg-white/[0.08] p-5 text-white shadow-[0_20px_70px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+              <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
-                  <p className="flex items-center gap-1.5 text-sm font-semibold text-[#111111]">
-                    {ultraWarning.name}
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#B45309]">
-                      <Zap size={10} strokeWidth={2.25} />
-                      {ultraWarning.credits}
+                  <p className="text-sm font-semibold text-white">{ultraWarning.name}</p>
+                  <div className="mt-3 flex flex-wrap items-end gap-x-2 gap-y-1">
+                    <span className="text-2xl font-semibold tracking-[-0.04em] text-white">
+                      Unlock Ultra reasoning
                     </span>
-                  </p>
-                  <p className="mt-1 text-sm leading-relaxed text-[#92710C]">
-                    This model uses ⚡{ultraWarning.credits} credits per message.
-                    Use it for complex reasoning or important tasks.
+                    <span className="text-sm font-medium text-white/58 line-through">
+                      ⚡900
+                    </span>
+                    <span className="text-xl font-semibold tracking-[-0.03em] text-white">
+                      ⚡{ultraWarning.credits}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-white/62">
+                    Premium model for complex tasks and difficult reasoning.
                   </p>
                 </div>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#4A1D0E]/80 px-3 py-1 text-xs font-semibold text-[#FDBA74]">
+                  <TriangleAlert size={13} strokeWidth={1.75} />
+                  Save 66%
+                </span>
               </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+
               <button
                 type="button"
                 data-testid="use-ultra-button"
                 onClick={confirmUltra}
-                className="ma-focus h-10 flex-1 rounded-xl bg-[#111111] px-4 text-sm font-medium text-white transition-colors duration-150 ease-out hover:bg-[#2D2D2D] active:scale-[0.99]"
+                className="ma-focus h-11 w-full rounded-full bg-white text-sm font-semibold text-black shadow-[0_8px_24px_rgba(255,255,255,0.16)] transition-[background-color,transform] duration-150 ease-out hover:bg-white/90 active:scale-[0.99]"
               >
-                Use Ultra Model
+                Use {ultraWarning.name}
               </button>
-              <button
-                type="button"
-                data-testid="switch-cheaper-button"
-                onClick={switchCheaper}
-                className="ma-focus h-10 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-4 text-sm font-medium text-[#374151] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.99]"
-              >
-                Switch to Cheaper Model
-              </button>
+
+              <div className="mt-5 space-y-3.5">
+                {[
+                  "Solve extremely difficult tasks",
+                  "Highest usage limits",
+                  "Longer expert conversations",
+                  "Priority answers and early access",
+                ].map((feature) => (
+                  <div key={feature} className="flex items-center gap-3 text-sm font-semibold text-white">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/15 bg-white/[0.06] text-white/82">
+                      <Zap size={14} strokeWidth={1.75} />
+                    </span>
+                    {feature}
+                  </div>
+                ))}
+              </div>
             </div>
+
+            <button
+              type="button"
+              data-testid="switch-cheaper-button"
+              onClick={switchCheaper}
+              className="ma-focus h-10 rounded-full border border-white/12 bg-white/[0.06] px-4 text-sm font-medium text-white/78 backdrop-blur-xl transition-[background-color,transform] duration-150 ease-out hover:bg-white/[0.1] active:scale-[0.99]"
+            >
+              Switch to Cheaper Model
+            </button>
           </div>
         ) : (
           <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
