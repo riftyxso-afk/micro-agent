@@ -15,7 +15,7 @@ import sys
 import requests
 
 SERVER_URL = os.environ.get("SERVER_URL", "http://127.0.0.1:8001").rstrip("/")
-MODEL_ID = os.environ.get("MODEL_ID", "combo-wombo")
+MODEL_ID = os.environ.get("MODEL_ID", "claude-sonnet-4-5")
 
 body = {
     "messages": [{"role": "user", "content": "Say hello in one short sentence."}],

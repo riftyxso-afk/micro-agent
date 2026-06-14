@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Wand2, Zap, CircleAlert, RotateCcw } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { Wand2, Zap, CircleAlert, RotateCcw, Download, Search, ExternalLink, ChevronDown } from "lucide-react";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { CodeBlock } from "@/components/chat/CodeBlock";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { ModelIcon } from "@/components/workspace/ModelIcon";
 
 export const UserMessage = ({ message }) => (
@@ -59,23 +60,38 @@ const AssistantHeader = ({ message }) => {
       )}
 
       <span
-        data-testid="assistant-status"
-        className="text-xs text-[#9CA3AF]"
-      >
-        {generating ? (
-          <span className="ma-shimmer-text">· generating...</span>
-        ) : message.state === "error" ? (
-          "· failed"
-        ) : (
-          `· ${message.status || "just now"}`
-        )}
-      </span>
-    </div>
+          data-testid="assistant-status"
+          className="text-xs text-[#9CA3AF]"
+        >
+          {generating ? (
+            <span className="ma-shimmer-text">· generating...</span>
+          ) : message.state === "error" ? (
+            "· failed"
+          ) : (
+            `· ${message.status || "just now"}`
+          )}
+        </span>
+      </div>
   );
 };
 
-export const AssistantMessage = ({ message, onRetry }) => {
+export const AssistantMessage = ({ message, onRetry, onRefine }) => {
   const [thinkingOpen, setThinkingOpen] = useState(true);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  const handleDownload = useCallback(() => {
+    const content = message.text || "";
+    const filename = `response-${message.model?.id || "ai"}.md`;
+    const blob = new Blob([content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [message.text, message.model]);
 
   // Auto-collapse thinking once the answer completes; keep it accessible
   useEffect(() => {
@@ -129,7 +145,7 @@ export const AssistantMessage = ({ message, onRetry }) => {
       data-testid="assistant-message"
       data-state={message.state}
     >
-      <div className="w-full max-w-full rounded-[24px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(17,24,39,0.04)] sm:max-w-[92%] sm:p-6">
+      <div className="w-full max-w-full rounded-[24px] bg-white p-5 shadow-[0_1px_3px_rgba(17,24,39,0.06)] sm:max-w-[92%] sm:p-6">
         <AssistantHeader message={message} />
 
         {isPending ? (
@@ -144,6 +160,7 @@ export const AssistantMessage = ({ message, onRetry }) => {
               open={thinkingOpen}
               onToggle={() => setThinkingOpen((o) => !o)}
               steps={message.thinkingSteps}
+              reasoningText={message.reasoningText}
             />
 
             {(message.state === "streaming" ||
@@ -156,6 +173,44 @@ export const AssistantMessage = ({ message, onRetry }) => {
               </div>
             )}
 
+            {message.state === "clarifying" && message.clarifyOptions && (
+              <ClarificationOptions
+                message={message}
+                onRefine={(refined) => onRefine?.(message.id, refined)}
+              />
+            )}
+
+            {message.state === "completed" && message.text && message.thinkingSteps?.filter(s => typeof s === "object" && s.type === "web_result").length > 0 && (
+              <div className="mt-3" data-testid="sources-section">
+                <button
+                  type="button"
+                  onClick={() => setSourcesOpen((o) => !o)}
+                  className="ma-focus inline-flex items-center gap-1.5 rounded-lg py-1 text-xs font-medium text-[#6B7280] transition-colors hover:text-[#111111]"
+                >
+                  <Search size={12} strokeWidth={1.75} />
+                  {message.thinkingSteps.filter(s => typeof s === "object" && s.type === "web_result").length} sources
+                  <ChevronDown size={12} strokeWidth={2} className={`transition-transform duration-200 ${sourcesOpen ? "rotate-180" : ""}`} />
+                </button>
+                <div className={`ma-collapse ${sourcesOpen ? "ma-collapse-open" : ""}`} aria-hidden={!sourcesOpen}>
+                  <div className="overflow-hidden">
+                    <div className="ml-[5px] mt-2 border-l-2 border-[#E5E7EB] pl-4">
+                      {message.thinkingSteps.filter(s => typeof s === "object" && s.type === "web_result").map((src, i) => {
+                        const host = (() => { try { return new URL(src.url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+                        return (
+                          <a key={`${src.url}-${i}`} href={src.url} target="_blank" rel="noreferrer" className="ma-focus group relative mb-3 flex items-center gap-2.5 rounded-xl px-1 py-1 last:mb-0 text-xs text-[#6B7280] transition-colors hover:text-[#111111]">
+                            <span className="absolute -left-[21px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border-2 border-[#E5E7EB] bg-white" />
+                            <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(src.url)}&sz=32`} alt="" className="h-4 w-4 rounded" loading="lazy" />
+                            <span className="min-w-0 flex-1 truncate">{host || src.title}</span>
+                            <ExternalLink size={11} strokeWidth={1.75} className="shrink-0 text-[#9CA3AF] opacity-0 transition-opacity group-hover:opacity-100" />
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {message.state === "completed" && message.code && (
               <CodeBlock code={message.code} />
             )}
@@ -164,6 +219,19 @@ export const AssistantMessage = ({ message, onRetry }) => {
               <p className="mt-3 text-xs italic text-[#9CA3AF]">
                 Generation stopped
               </p>
+            )}
+
+            {message.state === "completed" && message.text && (
+              <button
+                type="button"
+                data-testid="download-response-button"
+                aria-label="Download as Markdown"
+                onClick={handleDownload}
+                className="ma-focus mt-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] hover:text-[#111111]"
+              >
+                <Download size={13} strokeWidth={1.75} />
+                Download as .md
+              </button>
             )}
           </>
         )}

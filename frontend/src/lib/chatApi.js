@@ -8,7 +8,10 @@
  *   event: done      { status }
  *   event: error     { message }
  */
-const API_BASE_URL = "http://127.0.0.1:8001"; // Direct connection to backend
+// Support both local dev (relative proxy) and production (absolute URL from REACT_APP_API_URL)
+// Local dev: leave REACT_APP_API_URL empty, package.json proxy handles it
+// Production: set REACT_APP_API_URL to your deployed backend URL (e.g., https://api.yoursite.com)
+const API_BASE_URL = process.env.REACT_APP_API_URL || "";
 const DEBUG_STREAM = true;
 
 const streamLog = (...args) => {
@@ -26,15 +29,18 @@ export function streamChat({
   room,
   attachments,
   webSearch = false,
+  reasoning = true,
   signal,
   onMeta,
   onStatus,
   onThinking,
+  onReasoning,
   onToken,
   onDone,
   onError,
 }) {
   streamLog("request:start", {
+    url: `${API_BASE_URL}/api/chat/stream`,
     modelId,
     autoMode,
     room,
@@ -53,6 +59,7 @@ export function streamChat({
       room,
       attachments: attachments || [],
       web_search: webSearch,
+      reasoning,
     }),
     signal,
   })
@@ -66,14 +73,14 @@ export function streamChat({
       if (!response.ok) {
         const text = await response.text().catch(() => "");
         streamError("response:not-ok", response.status, text.slice(0, 500));
-        onError?.(new Error(`Server ${response.status}: ${text.slice(0, 200)}`));
+        onError?.(new Error(`Server error ${response.status}: ${text.slice(0, 200)}`));
         return;
       }
 
       const reader = response.body?.getReader();
       if (!reader) {
         streamError("reader:missing");
-        onError?.(new Error("Streaming tidak tersedia"));
+        onError?.(new Error("Streaming not available"));
         return;
       }
 
@@ -122,8 +129,10 @@ export function streamChat({
               streamLog("event:thinking", parsed.step);
               onThinking?.(parsed.step);
               break;
+            case "reasoning":
+              onReasoning?.(parsed.text);
+              break;
             case "token":
-              streamLog("event:token", JSON.stringify(parsed.text).slice(0, 80));
               onToken?.(parsed.text);
               break;
             case "done":
@@ -147,14 +156,16 @@ export function streamChat({
         const { done, value } = await reader.read();
         if (done) break;
 
-        buf += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        streamLog("stream:chunk", chunk.length, "chars:", chunk.slice(0, 200));
+        buf += chunk;
         const parts = buf.split("\n");
         buf = parts.pop() || "";
 
         for (const line of parts) {
           const trimmed = line.trim();
           if (!trimmed) {
-            dispatch(null); /* empty line = event delimiter, dispatch last event */
+            dispatch(null);
             continue;
           }
           if (trimmed.startsWith("event: ")) {
@@ -164,7 +175,6 @@ export function streamChat({
           }
         }
       }
-      /* flush remaining */
       if (buf.trim()) {
         const trimmed = buf.trim();
         if (trimmed.startsWith("data: ")) {
@@ -175,7 +185,13 @@ export function streamChat({
     })
     .catch((err) => {
       if (err.name === "AbortError") {
-        /* stopped by user — not an error to surface */
+        return;
+      }
+      if (err.message?.includes("Failed to fetch") || err.message?.includes("net::ERR_")) {
+        const helpText = API_BASE_URL
+          ? `Cannot connect to backend (${API_BASE_URL}). Make sure the server is running.`
+          : "Backend not configured. Set REACT_APP_API_URL in environment.";
+        onError?.(new Error(helpText));
         return;
       }
       onError?.(err);

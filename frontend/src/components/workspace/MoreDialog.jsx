@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import {
   HelpCircle,
   Megaphone,
   Shield,
+  Activity,
 } from "lucide-react";
 
 const MORE_ITEMS = [
@@ -19,6 +21,14 @@ const MORE_ITEMS = [
     description: "Preferences, API keys, and account",
     icon: Settings,
     accent: "bg-[#F7F7F8] text-[#111111]",
+  },
+  {
+    id: "api-status",
+    label: "API Status",
+    description: "Check backend health and endpoints",
+    icon: Activity,
+    accent: "bg-[#FFF7ED] text-[#EA580C]",
+    url: "http://127.0.0.1:8001/api/",
   },
   {
     id: "help",
@@ -44,6 +54,19 @@ const MORE_ITEMS = [
 ];
 
 export const MoreDialog = ({ open, onOpenChange }) => {
+  const navigate = useNavigate();
+
+  const handleItemClick = (item) => {
+    onOpenChange(false);
+    if (item.url) {
+      window.open(item.url, "_blank", "noopener,noreferrer");
+    } else if (item.route) {
+      navigate(item.route);
+    } else {
+      navigate(`/settings?section=${item.id}`);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -74,10 +97,7 @@ export const MoreDialog = ({ open, onOpenChange }) => {
                 key={item.id}
                 type="button"
                 data-testid={`more-item-${item.id}`}
-                onClick={() => {
-                  // Placeholder — future routing
-                  onOpenChange(false);
-                }}
+                onClick={() => handleItemClick(item)}
                 className="ma-focus flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.99]"
               >
                 <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${item.accent}`}>

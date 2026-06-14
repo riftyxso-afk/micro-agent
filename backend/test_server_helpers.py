@@ -14,7 +14,7 @@ def test_provider_url_keeps_chat_completions():
 
 def test_provider_model_known_id(monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL", "fallback-model")
-    assert server.provider_model("gpt-5-5", False) == "cx/gpt-5.5"
+    assert server.provider_model("deepseek-v4-pro", False) == "deepseek-ai/deepseek-v4-flash"
 
 
 def test_provider_model_unknown_uses_fallback(monkeypatch):

@@ -6,7 +6,9 @@ import { MobileNav } from "@/components/workspace/MobileNav";
 import { ChatTopBar } from "@/components/chat/ChatTopBar";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
 import { PromptComposer } from "@/components/workspace/PromptComposer";
-import { QuickChips } from "@/components/workspace/QuickChips";
+import { HistoryDialog } from "@/components/workspace/HistoryDialog";
+import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
+import { MoreDialog } from "@/components/workspace/MoreDialog";
 import {
   getModelById,
   DEFAULT_MODEL_ID,
@@ -15,6 +17,8 @@ import {
   QUICK_CHIPS,
 } from "@/lib/workspaceData";
 import { streamChat } from "@/lib/chatApi";
+import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
+import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -47,12 +51,14 @@ export default function ChatInterface() {
 
   const [collapsed, setCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState("new");
+  const [activeDialog, setActiveDialog] = useState(null);
   const [credits, setCredits] = useState(4250);
   const [model, setModel] = useState(() =>
     getModelById(seed?.modelId || DEFAULT_MODEL_ID),
   );
   const [autoMode, setAutoMode] = useState(seed?.autoMode || false);
   const [webSearch, setWebSearch] = useState(seed?.webSearch || false);
+  const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [activeChip, setActiveChip] = useState(seed?.chipId || null);
   const [room, setRoom] = useState(
     QUICK_CHIPS.find((c) => c.id === seed?.chipId)?.room || DEFAULT_ROOM,
@@ -95,6 +101,7 @@ export default function ChatInterface() {
         usedModel,
         contextMessages = [],
         webSearchAtSend = false,
+        reasoningAtSend = true,
       } = opts;
       const controller = new AbortController();
       abortRef.current = controller;
@@ -109,6 +116,7 @@ export default function ChatInterface() {
         autoMode,
         room: roomAtSend,
         webSearch: webSearchAtSend,
+        reasoning: reasoningAtSend,
         signal: controller.signal,
         onMeta: (meta) => {
           updateMessage(assistantId, {
@@ -158,6 +166,16 @@ export default function ChatInterface() {
             thinkingSteps,
             status: "thinking",
           });
+        },
+        onReasoning: (text) => {
+          if (!text || !reasoningAtSend) return;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, state: "thinking", status: "reasoning", reasoningText: ((m.reasoningText || "") + text) }
+                : m,
+            ),
+          );
         },
         onToken: (token) => {
           if (!token) return;
@@ -221,10 +239,20 @@ export default function ChatInterface() {
         code: null,
         prompt: text,
         thinkingSteps: [],
+        reasoningText: "",
       };
       const contextMessages = toProviderMessages(messages, text);
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+
+      if (isVaguePrompt(text)) {
+        updateMessage(assistantMsg.id, {
+          state: "clarifying",
+          clarifyOptions: getCodingOptions(),
+        });
+        return;
+      }
+
       runGeneration(assistantMsg.id, text, {
         roomAtSend: room,
         cost: usedModel.credits || 0,
@@ -232,10 +260,32 @@ export default function ChatInterface() {
         attachments,
         contextMessages,
         webSearchAtSend: webSearch,
+        reasoningAtSend: reasoningEnabled,
       });
     },
-    [autoMode, model, messages, room, runGeneration, webSearch],
+    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage],
   );
+
+  const handleRefine = useCallback((assistantId, refined) => {
+    const assistantMsg = messages.find((m) => m.id === assistantId);
+    if (!assistantMsg) return;
+    const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+    updateMessage(assistantId, {
+      state: "pending",
+      text: "",
+      clarifyOptions: undefined,
+    });
+    const contextMessages = toProviderMessages(messages, refined);
+    runGeneration(assistantId, refined, {
+      roomAtSend: room,
+      cost: usedModel.credits || 0,
+      usedModel,
+      attachments: [],
+      contextMessages,
+      webSearchAtSend: webSearch,
+      reasoningAtSend: reasoningEnabled,
+    });
+  }, [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage]);
 
   useEffect(() => {
     if (seed?.prompt && !seededRef.current) {
@@ -291,6 +341,7 @@ export default function ChatInterface() {
       text: "",
       code: null,
       thinkingSteps: [],
+      reasoningText: "",
       stopped: false,
       error: null,
     });
@@ -300,6 +351,7 @@ export default function ChatInterface() {
       usedModel: msg.model,
       contextMessages,
       webSearchAtSend: msg.webSearch || false,
+      reasoningAtSend: reasoningEnabled,
     });
   };
 
@@ -322,6 +374,15 @@ export default function ChatInterface() {
     });
   };
 
+  const handleReasoningToggle = () => {
+    setReasoningEnabled((r) => !r);
+    toast(`Reasoning ${reasoningEnabled ? "off" : "on"}`, {
+      description: reasoningEnabled
+        ? "AI will skip showing its thought process"
+        : "AI will show its reasoning steps",
+    });
+  };
+
   const handleChipClick = (chip) => {
     if (activeChip === chip.id) {
       setActiveChip(null);
@@ -340,6 +401,7 @@ export default function ChatInterface() {
       return;
     }
     setActiveNav(id);
+    setActiveDialog(id);
   };
 
   return (
@@ -349,6 +411,7 @@ export default function ChatInterface() {
         onNavChange={handleNavChange}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
+        onLogoClick={() => navigate("/home")}
       />
 
       <div
@@ -363,12 +426,12 @@ export default function ChatInterface() {
           data-testid="chat-messages"
           className="min-h-0 flex-1 overflow-y-auto scroll-smooth"
         >
-          <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4 px-3 py-6 sm:gap-6 sm:px-4 sm:py-8">
+          <div className="mx-auto flex w-full max-w-[860px] flex-col gap-3 px-3 py-5 sm:gap-4 sm:px-4 sm:py-6">
             {messages.length === 0 && (
-              <div className="mx-auto mt-[8vh] max-w-md rounded-2xl border border-[#E5E7EB] bg-white p-5 text-center shadow-[0_1px_2px_rgba(17,24,39,0.04)] sm:mt-[12vh] sm:rounded-[28px] sm:p-6">
-                <p className="text-sm font-semibold text-[#111111]">Start a real chat</p>
-                <p className="mt-2 text-sm leading-relaxed text-[#6B7280]">
-                  Pick a model, type a prompt, and MicroAgent will stream the response from your configured provider.
+              <div className="mx-auto mt-[6vh] max-w-sm text-center sm:mt-[10vh]">
+                <p className="text-sm font-medium text-[#6B7280]">Start a conversation</p>
+                <p className="mt-1.5 text-xs text-[#9CA3AF]">
+                  Messages will appear here
                 </p>
               </div>
             )}
@@ -376,17 +439,14 @@ export default function ChatInterface() {
               m.role === "user" ? (
                 <UserMessage key={m.id} message={m} />
               ) : (
-                <AssistantMessage key={m.id} message={m} onRetry={handleRetry} />
+                <AssistantMessage key={m.id} message={m} onRetry={handleRetry} onRefine={handleRefine} />
               ),
             )}
           </div>
         </main>
 
-        <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[84px] pt-2 sm:pb-5 md:pb-5">
+        <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[80px] pt-1 sm:pb-4 md:pb-4">
           <div className="mx-auto w-full max-w-[860px] px-3 sm:max-w-[860px] sm:px-4 sm:px-6" data-testid="chat-composer">
-            <div className="mb-2.5 sm:mb-3">
-              <QuickChips compact activeChip={activeChip} onChipClick={handleChipClick} />
-            </div>
             <PromptComposer
               compact
               placeholder="Ask anything"
@@ -399,12 +459,27 @@ export default function ChatInterface() {
               onAutoModeToggle={handleAutoModeToggle}
               webSearchEnabled={webSearch}
               onWebSearchToggle={() => setWebSearch((value) => !value)}
+              reasoningEnabled={reasoningEnabled}
+              onReasoningToggle={handleReasoningToggle}
             />
           </div>
         </footer>
       </div>
 
       <MobileNav activeNav={activeNav} onNavChange={handleNavChange} />
+
+      <HistoryDialog
+        open={activeDialog === "history"}
+        onOpenChange={(open) => setActiveDialog(open ? "history" : null)}
+      />
+      <ProjectsDialog
+        open={activeDialog === "projects"}
+        onOpenChange={(open) => setActiveDialog(open ? "projects" : null)}
+      />
+      <MoreDialog
+        open={activeDialog === "more"}
+        onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
+      />
     </div>
   );
 }

@@ -1,5 +1,11 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Claude AI worktrees & agents
+.claude/
+.agents/
+.emergent/
+skills-lock.json
+
 # IDE and editors
 .idea/
 .vscode/

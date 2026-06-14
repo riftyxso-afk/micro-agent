@@ -46,38 +46,63 @@ export const AUTO_MODEL = {
 
 export const MODELS = [
   {
-    id: "kimi-k2-6",
-    name: "Kimi K2.6",
-    shortName: "Kimi",
+    id: "claude-sonnet-4-5",
+    name: "Claude Sonnet 4.5",
+    shortName: "Sonnet",
     credits: 1,
-    color: "#6B4EFF",
-    tag: "Long context reasoning",
-    categories: ["reasoning", "writing"],
+    color: "#D97706",
+    tag: "Balanced intelligence & speed",
+    categories: ["reasoning", "writing", "coding"],
   },
   {
-    id: "deepseek-v4-pro",
+    id: "claude-sonnet-4-5-1m",
+    name: "Claude Sonnet 4.5 (1M)",
+    shortName: "Sonnet 1M",
+    credits: 2,
+    color: "#F59E0B",
+    tag: "Long context reasoning",
+    categories: ["reasoning", "writing", "coding"],
+  },
+  {
+    id: "deepseek-v4-flash",
     name: "DeepSeek v4 Flash",
     shortName: "DeepSeek",
     credits: 1,
     color: "#4D6BFE",
-    tag: "Balanced performance",
-    categories: ["pro", "coding", "reasoning"],
+    tag: "Fast & open-weight",
+    categories: ["reasoning", "coding"],
   },
   {
-    id: "claude-opus-4-8",
-    name: "Claude Opus-4.8",
-    shortName: "Opus",
-    credits: 5,
-    color: "#D97706",
-    tag: "Most intelligent — coming soon",
-    categories: ["reasoning", "coding", "writing", "pro"],
-    locked: true,
-    lockedHref: "/introducing-opus",
+    id: "deepseek-v3",
+    name: "DeepSeek V3",
+    shortName: "V3",
+    credits: 1,
+    color: "#3B82F6",
+    tag: "Open-weight reasoning",
+    categories: ["reasoning", "coding"],
+  },
+  {
+    id: "gpt-4o",
+    name: "GPT-4o",
+    shortName: "GPT-4o",
+    credits: 2,
+    color: "#10B981",
+    tag: "Multimodal & general purpose",
+    categories: ["reasoning", "writing", "coding"],
+  },
+  {
+    id: "o4-mini",
+    name: "o4 Mini",
+    shortName: "o4",
+    credits: 3,
+    color: "#8B5CF6",
+    tag: "Fast reasoning & deep thinking",
+    categories: ["reasoning", "coding"],
   },
 ];
 
-export const DEFAULT_MODEL_ID = "kimi-k2-6";
-export const AUTO_PICKED_MODEL_ID = "kimi-k2-6";
+export const DEFAULT_MODEL_ID = "claude-sonnet-4-5";
+export const AUTO_PICKED_MODEL_ID = "claude-sonnet-4-5";
 
 export const getModelById = (id) =>
   id === "auto" ? AUTO_MODEL : MODELS.find((m) => m.id === id) || MODELS[0];

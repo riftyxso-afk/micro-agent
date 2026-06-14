@@ -5,6 +5,7 @@ import {
   SlidersHorizontal,
   Image,
   Globe,
+  Brain,
   Sparkles,
   ArrowUp,
   Square,
@@ -82,6 +83,8 @@ export const PromptComposer = ({
   initialWebSearch = false,
   webSearchEnabled,
   onWebSearchToggle,
+  reasoningEnabled,
+  onReasoningToggle,
 }) => {
   const [value, setValue] = useState(initialValue);
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
@@ -310,14 +313,11 @@ export const PromptComposer = ({
             onClick={() => fileInputRef.current?.click()}
           />
           <IconAction
-            testId="prompt-composer-tools-button"
-            label="Tools"
-            icon={SlidersHorizontal}
-            onClick={() =>
-              toast("Tools", {
-                description: "Connect tools and workflows — coming soon.",
-              })
-            }
+            testId="prompt-composer-reasoning-button"
+            label={reasoningEnabled ? "Reasoning on" : "Reasoning off"}
+            icon={Brain}
+            active={reasoningEnabled}
+            onClick={onReasoningToggle}
           />
           <IconAction
             testId="prompt-composer-image-button"

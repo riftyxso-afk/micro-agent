@@ -1,4 +1,6 @@
 import { Settings, LogOut, UserRound } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export const UserMenu = ({ size = 40 }) => {
+  const navigate = useNavigate();
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -36,6 +40,7 @@ export const UserMenu = ({ size = 40 }) => {
         <DropdownMenuSeparator className="bg-[#F0F1F3]" />
         <DropdownMenuItem
           data-testid="user-menu-profile"
+          onClick={() => navigate("/profile")}
           className="cursor-pointer rounded-xl px-2.5 py-2 text-sm text-[#374151]"
         >
           <UserRound size={16} strokeWidth={1.75} className="text-[#6B7280]" />
@@ -43,6 +48,7 @@ export const UserMenu = ({ size = 40 }) => {
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid="user-menu-settings"
+          onClick={() => navigate("/settings")}
           className="cursor-pointer rounded-xl px-2.5 py-2 text-sm text-[#374151]"
         >
           <Settings size={16} strokeWidth={1.75} className="text-[#6B7280]" />
@@ -51,6 +57,7 @@ export const UserMenu = ({ size = 40 }) => {
         <DropdownMenuSeparator className="bg-[#F0F1F3]" />
         <DropdownMenuItem
           data-testid="user-menu-signout"
+          onClick={() => toast("Signed out", { description: "See you next time!" })}
           className="cursor-pointer rounded-xl px-2.5 py-2 text-sm text-[#374151]"
         >
           <LogOut size={16} strokeWidth={1.75} className="text-[#6B7280]" />

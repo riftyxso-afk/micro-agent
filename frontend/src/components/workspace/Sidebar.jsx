@@ -57,7 +57,7 @@ const SidebarItem = ({ item, active, collapsed, onClick }) => {
   return button;
 };
 
-export const Sidebar = ({ activeNav, onNavChange, collapsed, onToggleCollapse }) => {
+export const Sidebar = ({ activeNav, onNavChange, collapsed, onToggleCollapse, onLogoClick }) => {
   return (
     <aside
       data-testid="sidebar"
@@ -71,6 +71,7 @@ export const Sidebar = ({ activeNav, onNavChange, collapsed, onToggleCollapse })
           type="button"
           data-testid="sidebar-logo"
           aria-label="MicroAgent home"
+          onClick={onLogoClick}
           className="ma-focus rounded-xl transition-transform duration-150 ease-out hover:scale-[1.05] active:scale-[0.97]"
         >
           <Logo size={36} />

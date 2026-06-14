@@ -334,9 +334,9 @@ export const CompareSection = () => {
           {/* Gemini card */}
           <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
-              <ModelIcon model={MODELS.find((m) => m.id === "gemini-3-1-pro")} size={18} />
+              <ModelIcon model={MODELS[0]} size={18} />
               <span className="text-[13.5px] font-medium text-[#111111]">
-                Gemini 3.1 Pro
+                DeepSeek v4 Flash
               </span>
               <span className="inline-flex items-center gap-0.5 rounded-full bg-[#F7F7F8] px-1.5 py-0.5 text-[11px] font-semibold text-[#6B7280]">
                 <Zap size={10} strokeWidth={2.25} className="fill-[#F59E0B] text-[#F59E0B]" />30
