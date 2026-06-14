@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Paperclip,
   SlidersHorizontal,
   Image,
   Globe,
-  Wand2,
+  Sparkles,
   ArrowUp,
   Square,
   ChevronDown,
   Zap,
   X,
   FileText,
+  Check,
+  Lock,
 } from "lucide-react";
 import {
   Tooltip,
@@ -18,9 +21,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { ModelPicker } from "@/components/workspace/ModelPicker";
 import { ModelIcon } from "@/components/workspace/ModelIcon";
-import { AUTO_MODEL } from "@/lib/workspaceData";
+import { MODELS } from "@/lib/workspaceData";
+import { SlashCommandPalette } from "@/components/workspace/SlashCommandPalette";
 
 const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
   <Tooltip delayDuration={200}>
@@ -46,6 +49,25 @@ const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
   </Tooltip>
 );
 
+const improvePrompt = (text) => {
+  const t = text.trim();
+  if (!t || t.length < 3) return "";
+  if (t.length < 30) {
+    const lower = t.toLowerCase();
+    if (lower.includes("build") || lower.includes("create") || lower.includes("make")) {
+      return `${t}. Include a clear structure, modern best practices, and explain key implementation details.`;
+    }
+    if (lower.includes("explain") || lower.includes("what") || lower.includes("how")) {
+      return `${t}. Provide a thorough explanation with real-world examples and common use cases.`;
+    }
+    if (lower.includes("compare") || lower.includes("vs") || lower.includes("difference")) {
+      return `${t}. Compare pros, cons, performance, and ideal use cases for each option.`;
+    }
+    return `${t}. Be detailed, structured, and include practical examples where relevant.`;
+  }
+  return `${t}\n\nPlease provide a detailed, well-structured response with practical examples and key considerations.`;
+};
+
 export const PromptComposer = ({
   placeholder,
   onSend,
@@ -64,9 +86,12 @@ export const PromptComposer = ({
   const [value, setValue] = useState(initialValue);
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [improving, setImproving] = useState(false);
+  const [slashVisible, setSlashVisible] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   const webSearch = webSearchEnabled ?? localWebSearch;
 
@@ -80,7 +105,6 @@ export const PromptComposer = ({
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
 
-  // Sync value when initialValue prop changes (e.g. navigating landing→home)
   useEffect(() => {
     setValue(initialValue);
   }, [initialValue]);
@@ -89,7 +113,6 @@ export const PromptComposer = ({
     setLocalWebSearch(initialWebSearch);
   }, [initialWebSearch]);
 
-  // Resize textarea if mounted with a prefilled value (e.g. /home?prompt=...)
   useEffect(() => {
     if (initialValue && textareaRef.current) {
       const el = textareaRef.current;
@@ -99,6 +122,18 @@ export const PromptComposer = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
 
   const autoresize = (el) => {
     el.style.height = "auto";
@@ -123,6 +158,7 @@ export const PromptComposer = ({
     onSend(text, attachments);
     setValue("");
     setAttachments([]);
+    setSlashVisible(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.focus();
@@ -130,19 +166,87 @@ export const PromptComposer = ({
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Escape" && slashVisible) {
+      e.preventDefault();
+      setSlashVisible(false);
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !slashVisible) {
       e.preventDefault();
       handleSend();
     }
   };
 
+  const handleSlashSelect = (cmd) => {
+    setSlashVisible(false);
+    if (cmd.type === "transform") {
+      const base = value.replace(/^\/\s*\S*\s*/, "").trim();
+      const transformed = cmd.transform(base);
+      setValue(transformed);
+      if (textareaRef.current) {
+        autoresize(textareaRef.current);
+        textareaRef.current.focus();
+      }
+      toast(`Applied /${cmd.name}`, { description: cmd.desc });
+    } else if (cmd.type === "action") {
+      if (cmd.action === "enable_web_search" && !webSearch) {
+        toggleWebSearch();
+      }
+      setValue("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.focus();
+      }
+      toast(`/${cmd.name}`, { description: cmd.desc });
+    }
+  };
+
+  const handleImprovePrompt = () => {
+    if (!value.trim()) {
+      toast("Improve prompt", { description: "Type something first, then click to improve." });
+      return;
+    }
+    setImproving(true);
+    setTimeout(() => {
+      const improved = improvePrompt(value);
+      setValue(improved);
+      if (textareaRef.current) {
+        autoresize(textareaRef.current);
+        textareaRef.current.focus();
+      }
+      setImproving(false);
+      toast("Prompt improved", { description: "Your prompt has been enhanced for clarity." });
+    }, 600);
+  };
+
+  const selectModel = (m) => {
+    if (onModelSelect) {
+      onModelSelect(m, false);
+    }
+    setDropdownOpen(false);
+  };
+
   return (
-    <div
-      data-testid="prompt-composer"
-      className={`ma-composer mx-auto w-full rounded-[28px] border border-[#E5E7EB] bg-white transition-shadow duration-200 ease-out ${
-        compact ? "p-3.5 sm:p-4" : "p-4 sm:p-5"
-      }`}
-    >
+    <div className="relative mx-auto w-full">
+      <div className="flex items-center justify-between px-1 pb-2">
+        <p className="text-[13px] text-[#6B7280]">
+          Claude Opus-4.8 is coming
+        </p>
+        <Link
+          to="/introducing-opus"
+          data-testid="prompt-composer-learn-more"
+          className="text-[13px] font-medium text-[#111111] transition-colors hover:text-[#3B6EF6]"
+        >
+          Learn more
+        </Link>
+      </div>
+
+      <div
+        data-testid="prompt-composer"
+        className={`ma-composer relative mx-auto w-full rounded-[28px] border border-[#E5E7EB] bg-white transition-shadow duration-200 ease-out ${
+          compact ? "p-3.5 sm:p-4" : "p-4 sm:p-5"
+        }`}
+      >
       {attachments.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2" data-testid="attachment-list">
           {attachments.map((name, idx) => (
@@ -173,8 +277,14 @@ export const PromptComposer = ({
         value={value}
         placeholder={placeholder || "Ask anything"}
         onChange={(e) => {
-          setValue(e.target.value);
+          const next = e.target.value;
+          setValue(next);
           autoresize(e.target);
+          if (next.startsWith("/")) {
+            setSlashVisible(true);
+          } else {
+            setSlashVisible(false);
+          }
         }}
         onKeyDown={handleKeyDown}
         aria-label="Ask anything"
@@ -183,8 +293,8 @@ export const PromptComposer = ({
         }`}
       />
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
-        <div className="flex items-center gap-1">
+      <div className="mt-2 flex items-center justify-between gap-1">
+        <div className="flex min-w-0 items-center gap-0.5">
           <input
             ref={fileInputRef}
             type="file"
@@ -224,64 +334,119 @@ export const PromptComposer = ({
           />
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            data-testid="model-selector-trigger"
-            aria-label={
-              autoMode ? "Auto Select Model" : `Active model: ${model.name}`
-            }
-            onClick={() => setPickerOpen(true)}
-            className="ma-focus flex h-9 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-2.5 text-[13px] font-medium text-[#111111] shadow-[0_1px_2px_rgba(17,24,39,0.05)] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.98]"
-          >
-            {autoMode ? (
-              <>
-                <ModelIcon model={AUTO_MODEL} size={22} />
-                <span data-testid="model-selector-label">Auto Select Model</span>
-              </>
-            ) : (
-              <>
-                <ModelIcon model={model} size={22} />
-                <span data-testid="model-selector-label" className="hidden sm:inline">
-                  {model.name}
-                </span>
-                <span className="sm:hidden">{model.shortName}</span>
-                <span
-                  data-testid="model-credit-badge"
-                  className="inline-flex items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#B45309]"
-                >
-                  <Zap
-                    size={11}
-                    strokeWidth={2.25}
-                    className="fill-[#F59E0B] text-[#F59E0B]"
-                  />
-                  {model.credits}
-                </span>
-              </>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div ref={dropdownRef} className="relative">
+            <button
+              type="button"
+              data-testid="model-selector-trigger"
+              aria-label={`Active model: ${model.name}`}
+              onClick={() => setDropdownOpen((d) => !d)}
+              className="ma-focus flex h-9 max-w-[160px] items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 text-[13px] font-medium text-[#111111] shadow-[0_1px_2px_rgba(17,24,39,0.05)] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.98] sm:max-w-none"
+            >
+              <ModelIcon model={model} size={20} />
+              <span data-testid="model-selector-label" className="hidden truncate sm:inline">
+                {model.name}
+              </span>
+              <span className="truncate sm:hidden">{model.shortName}</span>
+              <span
+                data-testid="model-credit-badge"
+                className="inline-flex items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#B45309]"
+              >
+                <Zap
+                  size={11}
+                  strokeWidth={2.25}
+                  className="fill-[#F59E0B] text-[#F59E0B]"
+                />
+                {model.credits}
+              </span>
+              <ChevronDown size={14} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+              {dropdownOpen && (
+              <div
+                data-testid="model-dropdown"
+                className="ma-fade-in absolute bottom-full right-0 z-50 mb-2 w-[280px] rounded-2xl border border-[#E5E7EB] bg-white p-1.5 shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
+              >
+                {MODELS.map((m) => {
+                  const isSelected = !autoMode && model.id === m.id;
+                  if (m.locked) {
+                    return (
+                      <Link
+                        key={m.id}
+                        to={m.lockedHref || "/introducing-opus"}
+                        data-testid={`model-dropdown-${m.id}`}
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-60"
+                      >
+                        <ModelIcon model={m} size={26} />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                            <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                          </span>
+                          <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                        </span>
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]">
+                          Soon
+                        </span>
+                      </Link>
+                    );
+                  }
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      data-testid={`model-dropdown-${m.id}`}
+                      onClick={() => selectModel(m)}
+                      className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
+                        isSelected
+                          ? "bg-[#F7F7F8]"
+                          : "hover:bg-[#FAFAFA]"
+                      }`}
+                    >
+                      <ModelIcon model={m} size={26} />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                          {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
+                        </span>
+                        <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                      </span>
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
+                        <Zap size={9} strokeWidth={2.25} className="fill-[#F59E0B] text-[#F59E0B]" />
+                        {m.credits}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
-            <ChevronDown size={14} strokeWidth={2} className="text-[#9CA3AF]" />
-          </button>
+          </div>
 
           <Tooltip delayDuration={200}>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                data-testid="auto-mode-toggle"
-                aria-label="Auto Mode"
-                aria-pressed={autoMode}
-                onClick={onAutoModeToggle}
-                className={`ma-focus flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium transition-colors duration-150 ease-out active:scale-[0.97] ${
-                  autoMode
-                    ? "ma-auto-active text-[#4338CA]"
+                data-testid="improve-prompt-button"
+                aria-label="Improve prompt with AI"
+                onClick={handleImprovePrompt}
+                disabled={improving}
+                className={`ma-focus flex h-9 items-center gap-1.5 rounded-xl px-2 text-[13px] font-medium transition-colors duration-150 ease-out active:scale-[0.97] ${
+                  improving
+                    ? "animate-pulse bg-[#F5F3FF] text-[#7C3AED]"
                     : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
                 }`}
               >
-                <Wand2 size={17} strokeWidth={1.75} />
-                {autoMode && <span className="ma-fade-in">Auto</span>}
+                <Sparkles size={16} strokeWidth={1.75} />
+                {improving ? (
+                  <span className="ma-fade-in hidden text-xs xs:inline">Improving...</span>
+                ) : (
+                  <span className="hidden text-xs sm:inline">Improve</span>
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Auto Mode — picks the best model
+              Improve prompt with AI
             </TooltipContent>
           </Tooltip>
 
@@ -309,7 +474,7 @@ export const PromptComposer = ({
               aria-label="Send message"
               disabled={!hasContent}
               onClick={handleSend}
-              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.94] ${
+              className={`ma-focus grid h-10 w-10 place-items-center rounded-full transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.92] ${
                 hasContent
                   ? "bg-[#111111] text-white shadow-[0_4px_12px_rgba(17,24,39,0.25)] hover:bg-[#2D2D2D]"
                   : "cursor-default bg-[#E5E7EB] text-[#9CA3AF]"
@@ -321,13 +486,12 @@ export const PromptComposer = ({
         </div>
       </div>
 
-      <ModelPicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        selectedId={model.id}
-        autoMode={autoMode}
-        onSelect={onModelSelect}
+      <SlashCommandPalette
+        query={value}
+        visible={slashVisible}
+        onSelect={handleSlashSelect}
       />
+    </div>
     </div>
   );
 };

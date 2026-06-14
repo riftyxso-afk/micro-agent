@@ -1,19 +1,26 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import LandingPage from "@/pages/LandingPage";
 import HomeWorkspace from "@/pages/HomeWorkspace";
 import ChatInterface from "@/pages/ChatInterface";
+import SettingsPage from "@/pages/SettingsPage";
+import PricingPage from "@/pages/PricingPage";
+import ProfilePage from "@/pages/ProfilePage";
+import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
 
 function App() {
   return (
     <TooltipProvider delayDuration={200}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<HomeWorkspace />} />
           <Route path="/home" element={<HomeWorkspace />} />
           <Route path="/chat" element={<ChatInterface />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster

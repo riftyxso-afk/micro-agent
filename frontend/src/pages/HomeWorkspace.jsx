@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
@@ -30,6 +30,7 @@ export default function HomeWorkspace() {
   const [placeholder, setPlaceholder] = useState(initialChip?.hint || "Ask anything");
   const [model, setModel] = useState(() => getModelById(initialModelId));
   const [autoMode, setAutoMode] = useState(initialAutoMode);
+  const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
 
   const handleNavChange = (navId) => {
@@ -79,6 +80,63 @@ export default function HomeWorkspace() {
     });
   };
 
+  const handleRecommendation = (text) => {
+    setComposerInitial(text);
+  };
+
+  const greeting = useMemo(() => {
+    const now = new Date();
+    const h = now.getHours();
+    const d = now.getDay();
+
+    const emoji = h < 6 ? "🌙" : h < 12 ? "🌤️" : h < 17 ? "☀️" : h < 21 ? "🌅" : "🌙";
+    const part = h < 6 ? "night" : h < 12 ? "morning" : h < 17 ? "afternoon" : h < 21 ? "evening" : "night";
+
+    const greetings = {
+      morning: ["Good morning", "Morning", "Rise and shine"],
+      afternoon: ["Good afternoon", "Hey there", "Good day"],
+      evening: ["Good evening", "Hey", "Welcome back"],
+      night: ["Still working?", "Late night", "Hey night owl"],
+    };
+
+    const picks = greetings[part];
+    const greeting = picks[Math.floor(Math.random() * picks.length)];
+
+    return `${greeting}, Riftyxso`;
+  }, []);
+
+  const subtitle = useMemo(() => {
+    const h = new Date().getHours();
+    const d = new Date().getDay();
+    const msgs = {
+      morning: [
+        "Ready to create something today?",
+        "Fresh start — what's on your mind?",
+        "New ideas waiting to happen",
+      ],
+      afternoon: [
+        "Keep the momentum going",
+        "What are we tackling next?",
+        "Stay in the flow",
+      ],
+      evening: [
+        "Winding down or powering through?",
+        "One last deep dive?",
+        "Evening sessions hit different",
+      ],
+      night: [
+        "Quiet hours — perfect for focus",
+        "The world is sleeping, you're building",
+        "Late night deep work mode",
+      ],
+    };
+    const part = h < 6 ? "night" : h < 12 ? "morning" : h < 17 ? "afternoon" : h < 21 ? "evening" : "night";
+    const picks = msgs[part];
+    const isWeekend = d === 0 || d === 6;
+    const weekendMsg = isWeekend ? "Weekend mode — take your time" : null;
+    return weekendMsg ?? picks[Math.floor(Math.random() * picks.length)];
+  }, []);
+
   const fadeUp = (delay = 0) =>
     reduceMotion
       ? {}
@@ -90,13 +148,12 @@ export default function HomeWorkspace() {
 
   return (
     <div className="ma-page relative min-h-dvh">
-      <div aria-hidden="true" className="ma-hero-glow" />
-
       <Sidebar
         activeNav={activeNav}
         onNavChange={handleNavChange}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
+        onLogoClick={() => navigate("/home")}
       />
 
       <div className="absolute left-4 top-4 z-30 md:hidden">
@@ -108,7 +165,7 @@ export default function HomeWorkspace() {
       </header>
 
       <main
-        className={`relative flex min-h-dvh flex-col items-center justify-center px-4 pb-28 pt-20 transition-[margin] duration-300 ease-out sm:px-6 md:pb-16 ${
+        className={`relative flex min-h-dvh flex-col items-center justify-center px-3 pb-28 pt-16 transition-[margin] duration-300 ease-out sm:px-6 sm:pt-20 md:pb-16 ${
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
         }`}
       >
@@ -116,19 +173,19 @@ export default function HomeWorkspace() {
           <motion.div {...fadeUp(0)} className="text-center">
             <h1
               data-testid="greeting-heading"
-              className="font-heading text-4xl font-semibold tracking-tight text-[#111111] sm:text-5xl lg:text-[56px] lg:leading-[1.1]"
+              className="font-heading text-2xl font-semibold tracking-tight text-[#111111] sm:text-4xl lg:text-5xl"
             >
-              Good afternoon, Riftyxso
+              {greeting}
             </h1>
-            <p className="mt-3 text-base text-[#6B7280] md:text-[17px]">
-              Your AI super workspace is ready
+            <p className="mt-1.5 text-sm text-[#6B7280] sm:mt-2 sm:text-base">
+              {subtitle}
             </p>
           </motion.div>
 
-          <motion.div {...fadeUp(0.08)} className="mt-9 sm:mt-11">
+          <motion.div {...fadeUp(0.08)} className="mt-5 sm:mt-9">
             <PromptComposer
               placeholder={placeholder}
-              initialValue={initialPrompt}
+              initialValue={composerInitial}
               initialWebSearch={initialWebSearch}
               onSend={handleSend}
               model={model}
@@ -138,8 +195,33 @@ export default function HomeWorkspace() {
             />
           </motion.div>
 
-          <motion.div {...fadeUp(0.16)} className="mt-6 sm:mt-7">
-            <QuickChips activeChip={activeChip} onChipClick={handleChipClick} />
+          <motion.div {...fadeUp(0.16)} className="mt-4 sm:mt-6">
+            <QuickChips
+              activeChip={activeChip}
+              onChipClick={handleChipClick}
+              onRecommendation={handleRecommendation}
+            />
+          </motion.div>
+
+          <motion.div {...fadeUp(0.22)} className="mt-5 flex justify-center sm:mt-6">
+            <div
+              data-testid="plan-badge"
+              className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white/80 py-1.5 px-3 text-xs backdrop-blur-sm"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span className="font-medium text-[#374151]">Free Plan</span>
+              </span>
+              <span className="h-3 w-px bg-[#E5E7EB]" />
+              <button
+                type="button"
+                data-testid="upgrade-plan-button"
+                onClick={() => navigate("/pricing")}
+                className="ma-focus font-medium text-[#6366F1] transition-colors duration-150 hover:text-[#4338CA]"
+              >
+                Upgrade now
+              </button>
+            </div>
           </motion.div>
         </div>
       </main>
