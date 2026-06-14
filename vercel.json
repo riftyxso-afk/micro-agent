@@ -3,12 +3,6 @@
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install --legacy-peer-deps",
   "framework": "create-react-app",
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.12",
-      "includeFiles": "backend/**"
-    }
-  },
   "rewrites": [
     {
       "source": "/(.*)",
