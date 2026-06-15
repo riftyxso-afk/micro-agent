@@ -55,7 +55,21 @@ const renderInline = (v) => {
     }
     if (raw.startsWith("[")) {
       const m = raw.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      return m ? <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-[#2563EB] underline underline-offset-2 decoration-1 decoration-[#BFDBFE]">{m[1]}</a> : raw;
+      if (m) {
+        let host = "";
+        try { host = new URL(m[2]).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+        return (
+          <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[0.88em] text-[#374151] no-underline transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]">
+            {host && (
+              <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(m[2])}&sz=32`}
+                alt="" className="h-3 w-3 rounded-sm" loading="lazy" />
+            )}
+            <span>{m[1]}</span>
+          </a>
+        );
+      }
+      return <Fragment key={i}>{raw}</Fragment>;
     }
     if (raw.startsWith("*") && raw.endsWith("*")) return <em key={i}>{raw.slice(1, -1)}</em>;
     return <Fragment key={i}>{raw}</Fragment>;

@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
-import { ChatTopBar } from "@/components/chat/ChatTopBar";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
 import { PromptComposer } from "@/components/workspace/PromptComposer";
 import { HistoryDialog } from "@/components/workspace/HistoryDialog";
@@ -15,10 +14,13 @@ import {
   AUTO_PICKED_MODEL_ID,
   DEFAULT_ROOM,
   QUICK_CHIPS,
+  IMAGE_MODEL,
 } from "@/lib/workspaceData";
-import { streamChat } from "@/lib/chatApi";
+import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze } from "@/lib/chatApi";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
+import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
+import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -65,6 +67,9 @@ export default function ChatInterface() {
   );
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const deepResearchAbortRef = useRef(null);
 
   const seededRef = useRef(false);
   const scrollRef = useRef(null);
@@ -102,7 +107,13 @@ export default function ChatInterface() {
         contextMessages = [],
         webSearchAtSend = false,
         reasoningAtSend = true,
+        searchModePrompt = "",
       } = opts;
+      // Abort any existing generation before starting a new one
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
       const controller = new AbortController();
       abortRef.current = controller;
       setIsGenerating(true);
@@ -117,6 +128,7 @@ export default function ChatInterface() {
         room: roomAtSend,
         webSearch: webSearchAtSend,
         reasoning: reasoningAtSend,
+        searchModePrompt,
         signal: controller.signal,
         onMeta: (meta) => {
           updateMessage(assistantId, {
@@ -126,36 +138,38 @@ export default function ChatInterface() {
         },
         onStatus: (status) => {
           if (status.phase === "web_search" && status.status === "started") {
-            const step = status.message || `Searching the web for: ${status.query || prompt}`;
-            thinkingSteps = [...thinkingSteps, step].filter(Boolean);
             updateMessage(assistantId, {
               state: "thinking",
               status: "searching web...",
-              thinkingSteps,
+              webPhase: "searching",
+              webQuery: status.query || "",
+              webResults: [],
             });
+            // For non-web search modes (academic/social), also set searchMode to trigger pipeline
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              if (!m.searchMode || m.searchMode === "off") return { ...m, searchMode: "web" };
+              return m;
+            }));
           }
           if (status.phase === "web_search" && status.status === "results") {
-            const resultSteps = (status.results || [])
-              .slice(0, 6)
-              .map((result) => ({
-                type: "web_result",
-                title: result.title || result.url,
-                url: result.url,
-              }));
-            thinkingSteps = [...thinkingSteps, ...resultSteps].filter(Boolean);
+            const results = (status.results || []).slice(0, 10).map((r) => ({
+              type: "web_result",
+              title: r.title || r.url,
+              url: r.url,
+            }));
             updateMessage(assistantId, {
               state: "thinking",
               status: "reading sources...",
-              thinkingSteps,
+              webPhase: "reading",
+              webResults: results,
             });
           }
           if (status.phase === "web_fetch" && status.status === "completed") {
-            const step = status.message || "Fetched web sources for synthesis.";
-            thinkingSteps = [...thinkingSteps, step, "Synthesizing answer from web context."].filter(Boolean);
             updateMessage(assistantId, {
               state: "thinking",
               status: "synthesizing...",
-              thinkingSteps,
+              webPhase: "synthesizing",
             });
           }
         },
@@ -179,23 +193,79 @@ export default function ChatInterface() {
         },
         onToken: (token) => {
           if (!token) return;
-          receivedToken = true;
-          updateMessage(assistantId, {
-            state: "streaming",
-            status: "streaming",
-          });
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, text: `${m.text || ""}${token}` } : m,
-            ),
+            prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              const raw = (m._rawText || m.text || "") + token;
+
+              // Route <think> content to reasoningText, not to chat text
+              const thinkStart = raw.indexOf("<think>");
+              const thinkEnd = raw.indexOf("</think>");
+
+              let displayText;
+              let reasoningText = m.reasoningText || "";
+
+              if (thinkStart === -1) {
+                // No think block at all
+                displayText = raw;
+              } else if (thinkEnd !== -1 && thinkEnd > thinkStart) {
+                // Complete think block — extract reasoning, remove from display
+                const thinking = raw.slice(thinkStart + 7, thinkEnd).trim();
+                reasoningText = thinking;
+                displayText = (raw.slice(0, thinkStart) + raw.slice(thinkEnd + 8)).trim();
+              } else {
+                // Think block still open — stream inner content to reasoningText
+                reasoningText = raw.slice(thinkStart + 7).trim();
+                displayText = raw.slice(0, thinkStart).trim();
+              }
+
+              const isThinking = thinkStart !== -1 && thinkEnd === -1;
+              receivedToken = displayText.length > 0;
+
+              return {
+                ...m,
+                _rawText: raw,
+                text: displayText,
+                reasoningText,
+                state: isThinking ? "thinking" : "streaming",
+                status: isThinking ? "reasoning" : "streaming",
+              };
+            }),
           );
+          if (!receivedToken) receivedToken = false;
+          else {
+            updateMessage(assistantId, { state: "streaming", status: "streaming" });
+          }
         },
         onDone: () => {
+          // Check if completed text contains a QNA block
+          setMessages((prev) => {
+            const msg = prev.find((m) => m.id === assistantId);
+            if (!msg) return prev;
+            const fullText = msg._rawText || msg.text || "";
+            const qnaMatch = fullText.match(/<QNA>([\s\S]*?)<\/QNA>/);
+            if (qnaMatch) {
+              try {
+                const qnaData = JSON.parse(qnaMatch[1].trim());
+                const preText = fullText.slice(0, qnaMatch.index).trim();
+                return prev.map((m) => m.id === assistantId ? {
+                  ...m,
+                  state: "clarifying",
+                  status: "just now",
+                  text: preText,
+                  qna: qnaData,
+                } : m);
+              } catch { /* malformed JSON — fall through to normal */ }
+            }
+            return prev;
+          });
+
           if (receivedToken) {
-            updateMessage(assistantId, {
-              state: "completed",
-              status: "just now",
-            });
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              if (m.state === "clarifying") return m; // already handled by QNA parser
+              return { ...m, state: "completed", status: "just now" };
+            }));
           } else {
             updateMessage(assistantId, {
               state: "completed",
@@ -224,26 +294,85 @@ export default function ChatInterface() {
     [autoMode, updateMessage],
   );
 
+  const handleFileUploadAnalysis = useCallback(async (text, files) => {
+    const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+    const userMsg = { id: nextId(), role: "user", text, uploadedFiles: files.map(f => ({ name: f.name, type: f.type, size: f.size })) };
+    const assistantMsgId = nextId();
+    const assistantMsg = {
+      id: assistantMsgId, role: "assistant", state: "pending",
+      model: usedModel, text: "", prompt: text, thinkingSteps: [], reasoningText: "",
+    };
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setIsGenerating(true);
+    try {
+      const data = await uploadAndAnalyze({ files, prompt: text, chatHistory: messages });
+      updateMessage(assistantMsgId, { state: "completed", status: "just now", text: data.response || "" });
+    } catch (err) {
+      updateMessage(assistantMsgId, { state: "error", status: "failed", error: err.message });
+      toast("Analisis gagal", { description: err.message });
+    } finally {
+      setIsGenerating(false);
+      setUploadedFiles([]);
+    }
+  }, [autoMode, model, messages, updateMessage]);
+
   const sendMessage = useCallback(
-    (text, attachments = []) => {
+    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false) => {
+      // If files are attached, route to file analysis
+      if (uploadedFiles.length > 0) {
+        handleFileUploadAnalysis(text, uploadedFiles);
+        return;
+      }
       const userMsg = { id: nextId(), role: "user", text, webSearch };
       const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+      const isImgReq = isImageRequest(text);
+      // Use explicit searchModeId from composer, fallback to webSearch flag
+      const activeModeId = searchModeId && searchModeId !== "off"
+        ? searchModeId
+        : webSearch ? "web" : "off";
       const assistantMsg = {
         id: nextId(),
         role: "assistant",
         state: "pending",
-        model: usedModel,
-        autoMode,
+        model: isImgReq ? IMAGE_MODEL : usedModel,
+        autoMode: isImgReq ? false : autoMode,
         webSearch,
+        searchMode: isImgReq ? "off" : activeModeId,
         text: "",
         code: null,
         prompt: text,
         thinkingSteps: [],
         reasoningText: "",
       };
-      const contextMessages = toProviderMessages(messages, text);
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+
+      // Route image requests to image generation
+      if (isImgReq) {
+        updateMessage(assistantMsg.id, { state: "streaming", status: "generating image..." });
+        setIsGenerating(true);
+        generateImage(text)
+          .then((data) => {
+            updateMessage(assistantMsg.id, {
+              state: "completed",
+              status: "just now",
+              imageUrl: data.image_url,
+              text: `Gambar berhasil digenerate untuk prompt: "${text}"`,
+            });
+          })
+          .catch((err) => {
+            updateMessage(assistantMsg.id, {
+              state: "error",
+              status: "failed",
+              error: err.message || "Gagal generate gambar",
+            });
+            toast("Gagal generate gambar", { description: err.message });
+          })
+          .finally(() => setIsGenerating(false));
+        return;
+      }
+
+      const contextMessages = toProviderMessages(messages, text);
 
       if (isVaguePrompt(text)) {
         updateMessage(assistantMsg.id, {
@@ -253,30 +382,170 @@ export default function ChatInterface() {
         return;
       }
 
+      // Use web search if: globe toggle is on, OR selected mode requires web search
+      const shouldWebSearch = webSearch || modeWebSearch;
       runGeneration(assistantMsg.id, text, {
         roomAtSend: room,
         cost: usedModel.credits || 0,
         usedModel,
         attachments,
         contextMessages,
-        webSearchAtSend: webSearch,
+        webSearchAtSend: shouldWebSearch,
         reasoningAtSend: reasoningEnabled,
+        searchModePrompt,
       });
     },
-    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage],
+    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis],
   );
+
+  const handleDeepResearch = useCallback(async (query) => {
+    const userMsg = { id: nextId(), role: "user", text: query };
+    const usedModel = getModelById(DEFAULT_MODEL_ID);
+    const researchMsgId = nextId();
+    const researchMsg = {
+      id: researchMsgId,
+      role: "assistant",
+      state: "pending",
+      model: usedModel,
+      text: "",
+      prompt: query,
+      isDeepResearch: true,
+      deepResearch: { phase: "running", steps: [], sources: [], sourcesFound: [], query, elapsed: "" },
+      thinkingSteps: [],
+      reasoningText: "",
+    };
+
+    setMessages((prev) => [...prev, userMsg, researchMsg]);
+    setIsGenerating(true);
+
+    try {
+      for await (const evt of streamDeepResearch(query)) {
+        if (evt.type === "start") {
+          updateMessage(researchMsgId, { state: "streaming", status: "starting..." });
+        } else if (evt.type === "step") {
+          setMessages((prev) => prev.map((m) => {
+            if (m.id !== researchMsgId) return m;
+            const dr = m.deepResearch || {};
+            return { ...m, state: "streaming", deepResearch: { ...dr, steps: [...(dr.steps || []), { action: evt.action, message: evt.message, url: evt.url }] } };
+          }));
+        } else if (evt.type === "source_added") {
+          setMessages((prev) => prev.map((m) => {
+            if (m.id !== researchMsgId) return m;
+            const dr = m.deepResearch || {};
+            return { ...m, deepResearch: { ...dr, sources: [...(dr.sources || []), { url: evt.url, title: evt.title || evt.url }] } };
+          }));
+        } else if (evt.type === "source_found") {
+          setMessages((prev) => prev.map((m) => {
+            if (m.id !== researchMsgId) return m;
+            const dr = m.deepResearch || {};
+            return { ...m, deepResearch: { ...dr, sourcesFound: [...(dr.sourcesFound || []), { url: evt.url, title: evt.title || evt.url }] } };
+          }));
+        } else if (evt.type === "complete") {
+          const reportText = (evt.report || "").trim();
+          // Preserve existing steps from streaming, update sources + phase
+          setMessages((prev) => {
+            const updated = prev.map((m) => {
+              if (m.id !== researchMsgId) return m;
+              const dr = m.deepResearch || {};
+              return {
+                ...m,
+                state: "completed",
+                status: "just now",
+                text: "",  // panel message has no text
+                deepResearch: {
+                  ...dr,
+                  phase: "done",
+                  sources: evt.sources && evt.sources.length > 0 ? evt.sources : (dr.sources || []),
+                  elapsed: evt.elapsed || dr.elapsed || "",
+                  steps: dr.steps && dr.steps.length > 0 ? dr.steps : [],
+                },
+              };
+            });
+            // Add a separate regular assistant message with the report
+            if (reportText.length > 50) {
+              const reportMsg = {
+                id: nextId(),
+                role: "assistant",
+                state: "completed",
+                status: "just now",
+                model: getModelById(DEFAULT_MODEL_ID),
+                text: reportText,
+                prompt: query,
+                thinkingSteps: [],
+                reasoningText: "",
+                isDeepResearch: false,
+              };
+              return [...updated, reportMsg];
+            }
+            return updated;
+          });
+          setIsGenerating(false);
+          return;
+        } else if (evt.type === "error") {
+          updateMessage(researchMsgId, { state: "error", status: "failed", error: evt.message });
+          toast("Riset gagal", { description: evt.message });
+          setIsGenerating(false);
+          return;
+        }
+      }
+    } catch (err) {
+      updateMessage(researchMsgId, { state: "error", status: "failed", error: err.message });
+      toast("Riset gagal", { description: err.message });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [updateMessage]);
 
   const handleRefine = useCallback((assistantId, refined) => {
     const assistantMsg = messages.find((m) => m.id === assistantId);
     if (!assistantMsg) return;
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
-    updateMessage(assistantId, {
+
+    // Tag the answer so AI knows it's a QNA response, not a new vague request
+    const isQnaAnswer = assistantMsg.qna != null;
+    const taggedContent = isQnaAnswer ? `[QNA_ANSWER] ${refined}` : refined;
+
+    // Show clean text in UI (without internal tag)
+    const userAnswerMsg = { id: nextId(), role: "user", text: refined };
+
+    // Create a new assistant message for the response
+    const newAssistantId = nextId();
+    const newAssistantMsg = {
+      id: newAssistantId,
+      role: "assistant",
       state: "pending",
+      model: usedModel,
+      autoMode: autoMode,
+      webSearch,
       text: "",
-      clarifyOptions: undefined,
+      code: null,
+      prompt: refined,
+      thinkingSteps: [],
+      reasoningText: "",
+    };
+
+    // Mark old QNA message as answered
+    setMessages((prev) => [
+      ...prev.map((m) => m.id === assistantId ? { ...m, state: "completed", status: "answered" } : m),
+      userAnswerMsg,
+      newAssistantMsg,
+    ]);
+
+    // Build context: include full history with QNA assistant msg as text
+    // and send tagged answer to API
+    const historyForContext = messages.map((m) => {
+      if (m.id === assistantId) {
+        // Replace QNA card with its pre-text or a neutral placeholder for context
+        return { ...m, role: "assistant", text: m.text || "[Pertanyaan klarifikasi]", state: "completed" };
+      }
+      return m;
     });
-    const contextMessages = toProviderMessages(messages, refined);
-    runGeneration(assistantId, refined, {
+    const contextMessages = toProviderMessages(
+      [...historyForContext, { id: "__qna_ans", role: "user", text: taggedContent }],
+      null
+    );
+
+    runGeneration(newAssistantId, taggedContent, {
       roomAtSend: room,
       cost: usedModel.credits || 0,
       usedModel,
@@ -285,13 +554,23 @@ export default function ChatInterface() {
       webSearchAtSend: webSearch,
       reasoningAtSend: reasoningEnabled,
     });
-  }, [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage]);
+  }, [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, setMessages]);
 
+  // Seed from home workspace — wait until component is mounted and
+  // isGenerating is confirmed false before triggering first message
+  const seedTriggeredRef = useRef(false);
   useEffect(() => {
-    if (seed?.prompt && !seededRef.current) {
-      seededRef.current = true;
-      sendMessage(seed.prompt);
-      window.history.replaceState({}, "");
+    if (seed?.prompt && !seedTriggeredRef.current && !seededRef.current) {
+      seedTriggeredRef.current = true;
+      // Small delay to ensure React state is stable after navigation
+      const t = setTimeout(() => {
+        if (!seededRef.current) {
+          seededRef.current = true;
+          sendMessage(seed.prompt);
+          window.history.replaceState({}, "");
+        }
+      }, 80);
+      return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -419,14 +698,31 @@ export default function ChatInterface() {
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
         }`}
       >
-        <ChatTopBar title={title} room={room} credits={credits} />
-
         <main
           ref={scrollRef}
           data-testid="chat-messages"
-          className="min-h-0 flex-1 overflow-y-auto scroll-smooth"
+          className="relative min-h-0 flex-1 overflow-y-auto scroll-smooth"
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragging(false); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const files = Array.from(e.dataTransfer.files).slice(0, 5);
+            if (files.length) setUploadedFiles((prev) => [...prev, ...files].slice(0, 5));
+          }}
         >
-          <div className="mx-auto flex w-full max-w-[860px] flex-col gap-3 px-3 py-5 sm:gap-4 sm:px-4 sm:py-6">
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-[#F0F9FF]/90 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-[#0369A1] px-12 py-10">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0369A1" strokeWidth="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <p className="text-[15px] font-semibold text-[#0369A1]">Drop file untuk dianalisis</p>
+                <p className="text-[12px] text-[#0369A1]/70">PDF, DOCX, XLSX, gambar, TXT</p>
+              </div>
+            </div>
+          )}
+        
+          <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-4 py-6 sm:gap-4 sm:px-6 sm:py-8">
             {messages.length === 0 && (
               <div className="mx-auto mt-[6vh] max-w-sm text-center sm:mt-[10vh]">
                 <p className="text-sm font-medium text-[#6B7280]">Start a conversation</p>
@@ -438,19 +734,70 @@ export default function ChatInterface() {
             {messages.map((m) =>
               m.role === "user" ? (
                 <UserMessage key={m.id} message={m} />
+              ) : m.isDeepResearch ? (
+                <div key={m.id} className="ma-msg-in flex justify-start">
+                  <div className="w-full max-w-full">
+                    <DeepResearchPanel
+                      steps={m.deepResearch?.steps || []}
+                      sources={m.deepResearch?.sources || []}
+                      sourcesFound={m.deepResearch?.sourcesFound || []}
+                      phase={m.deepResearch?.phase || "running"}
+                      query={m.deepResearch?.query || m.prompt || ""}
+                      elapsed={m.deepResearch?.elapsed || ""}
+                    />
+                    {m.state === "completed" && m.text && m.text.length > 50 && (
+                      <div className="ma-msg-in mt-2 rounded-[24px] bg-white p-5 shadow-[0_1px_3px_rgba(17,24,39,0.06)] sm:p-6">
+                        <MarkdownMessage text={m.text} />
+                      </div>
+                    )}
+                    {m.state === "error" && (
+                      <div className="rounded-2xl border border-[#FECACA] bg-[#FEF2F2] p-4">
+                        <p className="text-sm text-[#991B1B]">{m.error || "Riset gagal"}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <AssistantMessage key={m.id} message={m} onRetry={handleRetry} onRefine={handleRefine} />
               ),
             )}
+            {/* Bottom padding so last message isn't hidden behind composer */}
+            <div className="h-4" aria-hidden="true" />
           </div>
         </main>
 
-        <footer className="shrink-0 bg-gradient-to-t from-[#F7F7F8] via-[#F7F7F8]/95 to-transparent pb-[80px] pt-1 sm:pb-4 md:pb-4">
-          <div className="mx-auto w-full max-w-[860px] px-3 sm:max-w-[860px] sm:px-4 sm:px-6" data-testid="chat-composer">
+        <footer className="shrink-0 pt-3 sm:pb-4 md:pb-4" style={{paddingBottom: 'max(32px, env(safe-area-inset-bottom))'}}>        
+          <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6" data-testid="chat-composer">
+            {/* File preview bar */}
+            {uploadedFiles.length > 0 && (
+              <div className="ma-fade-in mb-2 flex flex-wrap gap-2 rounded-2xl border border-[#E5E7EB] bg-white px-3 py-2">
+                {uploadedFiles.map((file, idx) => {
+                  const ext = file.name.split(".").pop().toLowerCase();
+                  const icons = { pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", docx: "📝", xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃" };
+                  const icon = icons[ext] || "📎";
+                  return (
+                    <span key={idx} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F7F8] py-1 pl-2 pr-1.5 text-xs text-[#374151]">
+                      <span>{icon}</span>
+                      <span className="max-w-[120px] truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-[#9CA3AF] hover:bg-[#E5E7EB] hover:text-[#374151]"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             <PromptComposer
               compact
-              placeholder="Ask anything"
+              placeholder={uploadedFiles.length > 0 ? "Tanya atau instruksikan tentang file ini..." : "Ask anything"}
               onSend={sendMessage}
+              onDeepResearch={handleDeepResearch}
+              onFileSelect={(files) => setUploadedFiles((prev) => [...prev, ...files].slice(0, 5))}
+              uploadedFilesCount={uploadedFiles.length}
               isGenerating={isGenerating}
               onStop={handleStop}
               model={model}
@@ -462,6 +809,9 @@ export default function ChatInterface() {
               reasoningEnabled={reasoningEnabled}
               onReasoningToggle={handleReasoningToggle}
             />
+            <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
+              MicroAgent can make mistakes. Always double-check important information.
+            </p>
           </div>
         </footer>
       </div>

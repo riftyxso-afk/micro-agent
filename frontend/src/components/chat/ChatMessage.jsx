@@ -1,14 +1,17 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { Wand2, Zap, CircleAlert, RotateCcw, Download, Search, ExternalLink, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { Wand2, Zap, CircleAlert, RotateCcw, Search, ExternalLink, ChevronDown, Copy, Check, Download } from "lucide-react";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { CodeBlock } from "@/components/chat/CodeBlock";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { ModelIcon } from "@/components/workspace/ModelIcon";
+import { DocumentDownloadMenu } from "@/components/chat/DocumentDownloadMenu";
+import { SearchPipeline } from "@/components/chat/SearchPipeline";
+import { QnaCard } from "@/components/chat/QnaCard";
 
 export const UserMessage = ({ message }) => (
   <div className="ma-msg-in flex justify-end" data-testid="user-message">
-    <div className="max-w-[90%] rounded-2xl rounded-br-lg bg-[#EDEEF1] px-3.5 py-2.5 text-[14px] leading-relaxed text-[#111111] sm:max-w-[75%] sm:rounded-3xl sm:px-5 sm:py-3 sm:text-[15px]">
+    <div className="max-w-[80%] rounded-2xl rounded-br-md bg-[#EDEEF1] px-4 py-2.5 text-[14px] leading-relaxed text-[#111111] sm:max-w-[70%] sm:px-5 sm:py-3 sm:text-[15px]">
       {message.text}
     </div>
   </div>
@@ -48,13 +51,9 @@ const AssistantHeader = ({ message }) => {
       {!generating && message.state !== "error" && (
         <span
           data-testid="assistant-credit-cost"
-          className="inline-flex items-center gap-0.5 rounded-full bg-[#F7F7F8] px-1.5 py-0.5 text-[11px] font-semibold text-[#6B7280]"
+          className="inline-flex items-center gap-0.5 rounded-full bg-[#F7F7F8] px-1.5 py-0.5 text-[11px] font-semibold text-[#6B7280] [&_svg]:text-[#6B7280]"
         >
-          <Zap
-            size={10}
-            strokeWidth={2.25}
-            className="fill-[#F59E0B] text-[#F59E0B]"
-          />
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           {message.model.credits}
         </span>
       )}
@@ -75,38 +74,70 @@ const AssistantHeader = ({ message }) => {
   );
 };
 
-export const AssistantMessage = ({ message, onRetry, onRefine }) => {
-  const [thinkingOpen, setThinkingOpen] = useState(true);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+const CopyButton = ({ text }) => {
+  const [copied, setCopied] = useState(false);
 
-  const handleDownload = useCallback(() => {
-    const content = message.text || "";
-    const filename = `response-${message.model?.id || "ai"}.md`;
-    const blob = new Blob([content], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [message.text, message.model]);
-
-  // Auto-collapse thinking once the answer completes; keep it accessible
-  useEffect(() => {
-    if (message.state === "completed") {
-      const t = setTimeout(() => setThinkingOpen(false), 600);
-      return () => clearTimeout(t);
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for older browsers
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-    if (
-      message.state === "thinking" ||
-      message.state === "pending" ||
-      message.state === "streaming"
-    ) {
-      setThinkingOpen(true);
+  }, [text]);
+
+  return (
+    <button
+      type="button"
+      data-testid="copy-response-button"
+      aria-label={copied ? "Copied" : "Copy response"}
+      onClick={handleCopy}
+      className="ma-focus inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] hover:text-[#111111]"
+    >
+      {copied ? (
+        <Check size={13} strokeWidth={1.75} className="text-[#22C55E]" />
+      ) : (
+        <Copy size={13} strokeWidth={1.75} />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+};
+
+export const AssistantMessage = ({ message, onRetry, onRefine }) => {
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Track if user has manually toggled — if so, don't auto-override
+  const userToggledRef = useRef(false);
+
+  useEffect(() => {
+    // Reset user-toggle tracking when a new generation starts
+    if (message.state === "pending") {
+      userToggledRef.current = false;
+      setThinkingOpen(false);
+    }
+    // Never auto-expand; collapsed is always the default.
+    // Auto-collapse on completion only if user hasn't manually opened it.
+    if (message.state === "completed" && !userToggledRef.current) {
+      setThinkingOpen(false);
     }
   }, [message.state]);
+
+  const handleThinkingToggle = () => {
+    userToggledRef.current = true;
+    setThinkingOpen((o) => !o);
+  };
 
   if (message.state === "error") {
     return (
@@ -145,7 +176,7 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
       data-testid="assistant-message"
       data-state={message.state}
     >
-      <div className="w-full max-w-full rounded-[24px] bg-white p-5 shadow-[0_1px_3px_rgba(17,24,39,0.06)] sm:max-w-[92%] sm:p-6">
+      <div className={`w-full max-w-full rounded-[24px] p-5 sm:p-6 ${message.imageUrl ? "" : "bg-white shadow-[0_1px_3px_rgba(17,24,39,0.06)]"}`}>
         <AssistantHeader message={message} />
 
         {isPending ? (
@@ -155,16 +186,59 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
           </div>
         ) : (
           <>
+            {/* Search pipeline — show during load AND keep visible after done with sources */}
+            {(message.searchMode && message.searchMode !== "off") &&
+              (message.state === "pending" || message.state === "thinking" ||
+               message.state === "streaming" || message.state === "completed") && (
+                <SearchPipeline
+                  mode={message.searchMode}
+                  phase={
+                    message.webPhase ||
+                    (message.state === "pending" ? "searching" :
+                     message.status === "searching web..." ? "searching" :
+                     message.status === "reading sources..." ? "reading" :
+                     message.status === "synthesizing..." ? "synthesizing" : "searching")
+                  }
+                  webResults={message.webResults || message.thinkingSteps?.filter(s => typeof s === "object" && s.type === "web_result") || []}
+                  webQuery={message.webQuery || ""}
+                  isStreaming={message.state === "streaming"}
+                  isDone={message.state === "completed"}
+                />
+              )}
+
             <ThinkingBlock
               state={message.state}
               open={thinkingOpen}
-              onToggle={() => setThinkingOpen((o) => !o)}
+              onToggle={handleThinkingToggle}
               steps={message.thinkingSteps}
               reasoningText={message.reasoningText}
             />
 
+            {/* Image result */}
+            {message.state === "completed" && message.imageUrl && (
+              <div className="mt-1">
+                <img
+                  src={message.imageUrl}
+                  alt={message.prompt || "Generated image"}
+                  className="w-full max-w-[480px] rounded-2xl border border-[#E5E7EB] shadow-sm"
+                  loading="lazy"
+                />
+                <a
+                  href={message.imageUrl}
+                  download="generated-image.png"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ma-focus mt-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6B7280] transition-colors hover:bg-[#F7F7F8] hover:text-[#111111]"
+                >
+                  <Download size={13} strokeWidth={1.75} />
+                  Unduh Gambar
+                </a>
+              </div>
+            )}
+
+            {/* Streaming/completed text — skip if this is an image-only message */}
             {(message.state === "streaming" ||
-              message.state === "completed") && (
+              (message.state === "completed" && !message.imageUrl)) && message.text && (
               <div className="relative">
                 <MarkdownMessage text={message.text} />
                 {message.state === "streaming" && (
@@ -173,7 +247,31 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
               </div>
             )}
 
-            {message.state === "clarifying" && message.clarifyOptions && (
+            {/* Generating image shimmer */}
+            {message.state === "streaming" && !message.text && (
+              <div className="space-y-2.5 py-1" data-testid="image-generating-shimmer">
+                <div className="ma-shimmer h-[200px] w-[200px] rounded-2xl" />
+              </div>
+            )}
+
+            {/* QNA clarification card (new AI-generated format) */}
+            {message.state === "clarifying" && message.qna && (
+              <div className="mt-1">
+                {message.text && (
+                  <p className="mb-3 text-[14px] leading-relaxed text-[#1F2937]">{message.text}</p>
+                )}
+                <QnaCard
+                  preText={message.qna.pre_text}
+                  question={message.qna.question}
+                  options={message.qna.options || []}
+                  allowCustom={message.qna.allow_custom}
+                  onAnswer={(answer) => onRefine?.(message.id, answer)}
+                />
+              </div>
+            )}
+
+            {/* Legacy clarification options */}
+            {message.state === "clarifying" && message.clarifyOptions && !message.qna && (
               <ClarificationOptions
                 message={message}
                 onRefine={(refined) => onRefine?.(message.id, refined)}
@@ -221,18 +319,37 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
               </p>
             )}
 
-            {message.state === "completed" && message.text && (
-              <button
-                type="button"
-                data-testid="download-response-button"
-                aria-label="Download as Markdown"
-                onClick={handleDownload}
-                className="ma-focus mt-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] hover:text-[#111111]"
-              >
-                <Download size={13} strokeWidth={1.75} />
-                Download as .md
-              </button>
-            )}
+            {message.state === "completed" && message.text && (() => {
+              const isDocReady = message.text.includes("[DOKUMEN SIAP]");
+              const cleanText = message.text
+                .replace(/^>\s*\*\*\[DOKUMEN SIAP\]\*\*.*$/m, "")
+                .trim();
+              const docTitle = message.prompt
+                ? (message.prompt.length > 60 ? message.prompt.slice(0, 60).trim() : message.prompt)
+                : "MicroAgent Response";
+              return (
+                <div className="mt-3">
+                  {isDocReady && (
+                    <div className="mb-2 flex items-center gap-2 rounded-xl border border-[#E0F2FE] bg-[#F0F9FF] px-3 py-2">
+                      <span className="text-[13px]">📄</span>
+                      <p className="flex-1 text-[12px] font-medium text-[#0369A1]">
+                        Dokumen siap diunduh
+                      </p>
+                      <DocumentDownloadMenu
+                        content={cleanText}
+                        title={docTitle}
+                        modelId={message.model?.id}
+                        highlight
+                      />
+                    </div>
+                  )}
+                  {/* Only show copy button for all responses; download only for doc-ready */}
+                  <div className="flex items-center gap-1">
+                    <CopyButton text={cleanText} />
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>

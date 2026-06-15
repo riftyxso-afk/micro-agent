@@ -159,6 +159,50 @@ body {
   }
 }
 
+/* Pipeline slide-up + fade animation */
+.ma-pipeline-enter {
+  animation: ma-pipeline-enter 0.28s cubic-bezier(0.21, 0.47, 0.32, 0.98) both;
+}
+
+@keyframes ma-pipeline-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Step row appear animation */
+.ma-step-enter {
+  animation: ma-step-enter 0.2s ease-out both;
+}
+
+@keyframes ma-step-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Dropup slide-up animation */
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* ===== Modern shared surfaces ===== */
 
 .ma-soft-grid {
@@ -333,6 +377,40 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Grid loader — 3x3 squares that light up in sequence */
+.ma-grid-loader {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+}
+
+.ma-grid-loader span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.15;
+  animation: ma-grid-cell 1.2s ease-in-out infinite;
+}
+
+.ma-grid-loader span:nth-child(1)  { animation-delay: 0.0s; }
+.ma-grid-loader span:nth-child(2)  { animation-delay: 0.1s; }
+.ma-grid-loader span:nth-child(3)  { animation-delay: 0.2s; }
+.ma-grid-loader span:nth-child(4)  { animation-delay: 0.3s; }
+.ma-grid-loader span:nth-child(5)  { animation-delay: 0.4s; }
+.ma-grid-loader span:nth-child(6)  { animation-delay: 0.5s; }
+.ma-grid-loader span:nth-child(7)  { animation-delay: 0.6s; }
+.ma-grid-loader span:nth-child(8)  { animation-delay: 0.7s; }
+.ma-grid-loader span:nth-child(9)  { animation-delay: 0.8s; }
+
+@keyframes ma-grid-cell {
+  0%, 50%, 100% { opacity: 0.15; }
+  25% { opacity: 1; }
 }
 
 /* Typing dots */

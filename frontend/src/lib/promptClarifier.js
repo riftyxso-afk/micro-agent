@@ -1,7 +1,8 @@
+// Only trigger clarification for the most genuinely ambiguous single-word requests.
+// Do NOT block short prompts like "apa itu AI" or normal greetings.
 const VAGUE_PATTERNS = [
-  /^(bantu|coding|help|code|program|tugas|tolong|how|what|why|who|where|when|p|test|halo|hi|hello|hey)\s*$/i,
+  /^(bantu|help|tolong|code|coding|program|tugas)\s*$/i,
   /^(bantu|coding|help|code|program|tolong)\s+(aku|saya|me|gua|gue|kami)\s*$/i,
-  /^.{0,10}$/,
 ];
 
 const CODING_OPTIONS = [

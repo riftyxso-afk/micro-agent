@@ -20,12 +20,13 @@ const AutoModelMark = (props) => (
 );
 
 const MODEL_ICON_SRC = {
-  "deepseek-v4-pro": "/svg/deepseek.svg",
+  "claude-sonnet-4-5-1m": "/svg/claude-ai-icon.svg",
+  "claude-opus-4-8": "/svg/claude-ai-icon.svg",
   "deepseek-v4-flash": "/svg/deepseek.svg",
-  "deepseek-v3": "/svg/deepseek.svg",
-  "claude-sonnet-4-5": "/svg/claude-icon.svg",
-  "claude-sonnet-4-5-1m": "/svg/claude-icon.svg",
-  "gpt-4o": "/svg/openai-icon.svg",
+  "kimi-k2.6": "/svg/kimi-icon.svg",
+  "glm-5": "/svg/zai.svg",
+  "flux-2-klein-4b": "/svg/flux.svg",
+  "minimax-m3": "/svg/minimax-color.svg",
 };
 
 export const ModelIcon = ({ model, size = 24 }) => {

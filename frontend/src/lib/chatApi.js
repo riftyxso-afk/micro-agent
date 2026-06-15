@@ -22,6 +22,141 @@ const streamError = (...args) => {
   if (DEBUG_STREAM) console.error("[chat-stream]", ...args);
 };
 
+/**
+ * Generate and download a document from AI response content.
+ * Calls POST /api/generate-document and triggers browser download.
+ *
+ * @param {Object} opts
+ * @param {string} opts.content  - Markdown text (AI response)
+ * @param {string} opts.format   - 'pdf' | 'docx' | 'txt' | 'md'
+ * @param {string} opts.title    - Document title
+ * @param {string} [opts.modelId]
+ */
+/**
+ * Detect if a user message is an image generation request.
+ */
+const IMAGE_KEYWORDS = [
+  "buatkan gambar", "buat gambar", "generate gambar", "generate image",
+  "create image", "buat foto", "buatkan foto", "gambarkan", "ilustrasi",
+  "lukiskan", "render gambar", "image of", "picture of", "draw ",
+];
+
+export function isImageRequest(text) {
+  const lower = (text || "").toLowerCase();
+  return IMAGE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Call /api/generate-image and return { image_url, prompt }.
+ */
+export async function generateImage(prompt) {
+  const res = await fetch(`${API_BASE_URL}/api/generate-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || `Server error ${res.status}`);
+  }
+  return data;
+}
+
+/**
+ * Stream deep research via SSE. Returns an async generator.
+ * Events: { type: 'start'|'step'|'source_found'|'source_added'|'complete'|'error', ... }
+ */
+export async function* streamDeepResearch(query) {
+  const res = await fetch(`${API_BASE_URL}/api/deep-research`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Server error ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n");
+    buf = parts.pop() || "";
+    for (const line of parts) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("data: ")) {
+        try {
+          yield JSON.parse(trimmed.slice(6));
+        } catch { /* ignore malformed */ }
+      }
+    }
+  }
+  if (buf.trim().startsWith("data: ")) {
+    try { yield JSON.parse(buf.trim().slice(6)); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Upload files + prompt to /api/upload-and-analyze.
+ * Returns { success, response, files_analyzed }
+ */
+export async function uploadAndAnalyze({ files, prompt, chatHistory = [] }) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  formData.append("prompt", prompt || "Tolong analisis file yang saya upload.");
+  formData.append("chat_history", JSON.stringify(
+    chatHistory.slice(-6).map((m) => ({ role: m.role, content: m.text || m.content || "" }))
+  ));
+
+  const res = await fetch(`${API_BASE_URL}/api/upload-and-analyze`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || `Server error ${res.status}`);
+  }
+  return data;
+}
+
+export async function generateDocument({ content, format, title, modelId }) {
+  const res = await fetch(`${API_BASE_URL}/api/generate-document`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, format, title, model_id: modelId }),
+  });
+
+  // Read body once as blob to avoid "body stream already read" error
+  const blob = await res.blob();
+
+  if (!res.ok) {
+    // Try to parse error message from blob
+    const text = await blob.text().catch(() => "");
+    let message = `Server error ${res.status}`;
+    try { message = JSON.parse(text).error || message; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  // Get filename from Content-Disposition header if available
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `document.${format}`;
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function streamChat({
   messages,
   modelId,
@@ -30,6 +165,7 @@ export function streamChat({
   attachments,
   webSearch = false,
   reasoning = true,
+  searchModePrompt = "",
   signal,
   onMeta,
   onStatus,
@@ -47,6 +183,7 @@ export function streamChat({
     messages: messages?.length || 0,
     attachments: attachments?.length || 0,
     webSearch,
+    searchModePrompt: searchModePrompt ? searchModePrompt.slice(0, 40) + "..." : "off",
   });
 
   fetch(`${API_BASE_URL}/api/chat/stream`, {
@@ -60,6 +197,7 @@ export function streamChat({
       attachments: attachments || [],
       web_search: webSearch,
       reasoning,
+      search_mode_prompt: searchModePrompt || "",
     }),
     signal,
   })

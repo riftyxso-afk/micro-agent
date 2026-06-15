@@ -44,22 +44,24 @@ export const AUTO_MODEL = {
   isAuto: true,
 };
 
+export const IMAGE_MODEL = {
+  id: "flux-2-klein-4b",
+  name: "Flux 2 Klein 4B",
+  shortName: "Flux",
+  credits: 1,
+  color: "#F97316",
+  tag: "Image generation",
+  categories: ["image"],
+  isImageModel: true,
+};
+
 export const MODELS = [
-  {
-    id: "claude-sonnet-4-5",
-    name: "Claude Sonnet 4.5",
-    shortName: "Sonnet",
-    credits: 1,
-    color: "#D97706",
-    tag: "Balanced intelligence & speed",
-    categories: ["reasoning", "writing", "coding"],
-  },
   {
     id: "claude-sonnet-4-5-1m",
     name: "Claude Sonnet 4.5 (1M)",
     shortName: "Sonnet 1M",
     credits: 2,
-    color: "#F59E0B",
+    color: "#D97757",
     tag: "Long context reasoning",
     categories: ["reasoning", "writing", "coding"],
   },
@@ -73,36 +75,48 @@ export const MODELS = [
     categories: ["reasoning", "coding"],
   },
   {
-    id: "deepseek-v3",
-    name: "DeepSeek V3",
-    shortName: "V3",
+    id: "glm-5",
+    name: "GLM-5",
+    shortName: "GLM-5",
     credits: 1,
-    color: "#3B82F6",
-    tag: "Open-weight reasoning",
-    categories: ["reasoning", "coding"],
-  },
-  {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    shortName: "GPT-4o",
-    credits: 2,
-    color: "#10B981",
-    tag: "Multimodal & general purpose",
+    color: "#06B6D4",
+    tag: "Advanced multilingual reasoning",
     categories: ["reasoning", "writing", "coding"],
   },
   {
-    id: "o4-mini",
-    name: "o4 Mini",
-    shortName: "o4",
-    credits: 3,
-    color: "#8B5CF6",
-    tag: "Fast reasoning & deep thinking",
-    categories: ["reasoning", "coding"],
+    id: "claude-opus-4-8",
+    name: "Claude Opus 4.8",
+    shortName: "Opus",
+    credits: 5,
+    color: "#7C3AED",
+    tag: "Most intelligent model",
+    categories: ["reasoning", "writing", "coding"],
+    isLocked: true,
+    locked: true,
+    lockedHref: "/introducing-opus",
+  },
+  {
+    id: "kimi-k2.6",
+    name: "Kimi K2.6",
+    shortName: "Kimi",
+    credits: 1,
+    color: "#0EA5E9",
+    tag: "Multimodal & long context",
+    categories: ["reasoning", "writing", "coding"],
+  },
+  {
+    id: "minimax-m3",
+    name: "MiniMax M3",
+    shortName: "MiniMax",
+    credits: 1,
+    color: "#6366F1",
+    tag: "Fast & efficient",
+    categories: ["reasoning", "writing", "coding"],
   },
 ];
 
-export const DEFAULT_MODEL_ID = "claude-sonnet-4-5";
-export const AUTO_PICKED_MODEL_ID = "claude-sonnet-4-5";
+export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
+export const AUTO_PICKED_MODEL_ID = "deepseek-v4-flash";
 
 export const getModelById = (id) =>
   id === "auto" ? AUTO_MODEL : MODELS.find((m) => m.id === id) || MODELS[0];

@@ -156,20 +156,17 @@ export default function HomeWorkspace() {
         onLogoClick={() => navigate("/home")}
       />
 
-      <div className="absolute left-4 top-4 z-30 md:hidden">
-        <Logo size={34} />
-      </div>
-
+      {/* UserMenu top-right — mobile shifts right to avoid hamburger */}
       <header className="absolute right-4 top-4 z-30 sm:right-6 sm:top-6">
         <UserMenu />
       </header>
 
       <main
-        className={`relative flex min-h-dvh flex-col items-center justify-center px-3 pb-28 pt-16 transition-[margin] duration-300 ease-out sm:px-6 sm:pt-20 md:pb-16 ${
+        className={`relative flex min-h-dvh flex-col items-center justify-center px-4 pb-28 pt-20 transition-[margin] duration-300 ease-out sm:px-8 sm:pt-24 md:pb-16 ${
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
         }`}
       >
-        <div className="w-full max-w-[860px] -translate-y-[2vh]">
+        <div className="w-full max-w-[680px] -translate-y-[2vh]">
           <motion.div {...fadeUp(0)} className="text-center">
             <h1
               data-testid="greeting-heading"
@@ -203,7 +200,8 @@ export default function HomeWorkspace() {
             />
           </motion.div>
 
-          <motion.div {...fadeUp(0.22)} className="mt-5 flex justify-center sm:mt-6">
+          {/* Free Plan badge — hidden on mobile to reduce clutter */}
+          <motion.div {...fadeUp(0.22)} className="mt-5 hidden justify-center sm:flex sm:mt-6">
             <div
               data-testid="plan-badge"
               className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white/80 py-1.5 px-3 text-xs backdrop-blur-sm"
