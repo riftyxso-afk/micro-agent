@@ -20,6 +20,8 @@ import {
   Users,
   Telescope,
 } from "lucide-react";
+import { SkillPicker } from "@/components/workspace/SkillPicker";
+import { ToolsMenu } from "@/components/workspace/ToolsMenu";
 import {
   Tooltip,
   TooltipContent,
@@ -141,6 +143,7 @@ export const PromptComposer = ({
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [activeSkill, setActiveSkill] = useState(null); // { slug, name, icon }
   const [improving, setImproving] = useState(false);
   const [slashVisible, setSlashVisible] = useState(false);
   const [searchMode, setSearchMode] = useState("off");
@@ -274,7 +277,7 @@ export const PromptComposer = ({
     }
 
     const activeMode = SEARCH_MODES.find((m) => m.id === searchMode);
-    onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false);
+    onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false, activeSkill?.slug || null);
     setValue("");
     setAttachments([]);
     setSlashVisible(false);
@@ -440,6 +443,21 @@ export const PromptComposer = ({
           </div>
         </div>
       )}
+      {/* Active skill badge */}
+      {activeSkill && (
+        <div className="ma-fade-in mb-2 flex items-center gap-2 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] px-3 py-1.5">
+          <span className="text-[14px]">{activeSkill.icon}</span>
+          <span className="flex-1 text-[12px] font-medium text-[#4338CA]">{activeSkill.name} skill aktif</span>
+          <button
+            type="button"
+            onClick={() => setActiveSkill(null)}
+            className="ma-focus grid h-4 w-4 place-items-center rounded text-[#6366F1] hover:text-[#4338CA]"
+          >
+            <X size={11} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+
       {/* Opus teaser — desktop only */}
       <div className="hidden items-center justify-between px-1 pb-2 sm:flex">
         <p className="text-[13px] text-[#6B7280]">
@@ -521,6 +539,19 @@ export const PromptComposer = ({
             onChange={handleFiles}
             data-testid="prompt-composer-file-input"
           />
+          {/* Tools Menu (Search Mode + AI Mode + Skills) - replaces 3 separate icons */}
+          <ToolsMenu
+            searchMode={searchMode}
+            onSearchModeChange={(mode) => { setSearchMode(mode.id); }}
+            reasoningEnabled={reasoningEnabled}
+            onReasoningToggle={onReasoningToggle}
+            deepResearchMode={deepResearchMode}
+            onDeepResearchToggle={() => setDeepResearchMode((d) => !d)}
+            activeSkill={activeSkill}
+            onSkillSelect={(skill) => setActiveSkill(skill)}
+            onSkillClear={() => setActiveSkill(null)}
+          />
+
           {/* Attach — always visible */}
           <IconAction
             testId="prompt-composer-attach-button"
@@ -528,282 +559,6 @@ export const PromptComposer = ({
             icon={Paperclip}
             onClick={() => fileInputRef.current?.click()}
           />
-          {/* Image — desktop only */}
-          <span className="hidden sm:inline-flex">
-            <IconAction
-              testId="prompt-composer-image-button"
-              label="Add image"
-              icon={Image}
-              onClick={() => fileInputRef.current?.click()}
-            />
-          </span>
-          {/* Search mode dropup — desktop only, on mobile merged into overflow menu */}
-          <span className="hidden sm:inline-flex">
-          <div ref={dropupRef} className="relative">
-            {dropupOpen && (
-              <div
-                role="menu"
-                aria-label="Search mode"
-                className="absolute bottom-full left-0 z-50 mb-2 max-h-[70vh] w-[min(224px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
-                style={{animation: "slideUpFade 0.15s ease-out"}}
-              >
-                <div className="px-3 py-2 border-b border-[#F3F4F6]">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Search Mode</p>
-                </div>
-                <div className="py-1">
-                  {SEARCH_MODES.map((mode) => {
-                    const ModeIcon = mode.Icon;
-                    const isActive = searchMode === mode.id;
-                    return (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { setSearchMode(mode.id); setDropupOpen(false); }}
-                        className={`ma-focus flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-100 ${
-                          isActive ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                        }`}
-                      >
-                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                          isActive ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                        }`}>
-                          <ModeIcon size={14} strokeWidth={1.75} />
-                        </span>
-                        <span className="flex-1">
-                          <span className={`flex items-center gap-1.5 text-[13px] font-medium ${
-                            isActive ? "text-[#3B6EF6]" : "text-[#111111]"
-                          }`}>
-                            {mode.label}
-                            {mode.badge && (
-                              <span className="rounded-full bg-[#EFF4FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#3B6EF6]">{mode.badge}</span>
-                            )}
-                          </span>
-                          <span className="block text-[11px] text-[#9CA3AF]">{mode.description}</span>
-                        </span>
-                        {isActive && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[#3B6EF6]" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  data-testid="search-mode-button"
-                  aria-label={`Search mode: ${SEARCH_MODES.find(m => m.id === searchMode)?.label}`}
-                  onClick={() => setDropupOpen((o) => !o)}
-                  className={`ma-focus relative grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-                    searchMode !== "off"
-                      ? "bg-[#EFF4FF] text-[#3B6EF6]"
-                      : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
-                  }`}
-                >
-                  <Globe size={18} strokeWidth={1.75} />
-                  {searchMode !== "off" && (
-                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#3B6EF6] ring-2 ring-white" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {searchMode === "off" ? "Search mode" : `Mode: ${SEARCH_MODES.find(m => m.id === searchMode)?.label}`}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          </span>{/* end sm:inline-flex for search mode */}
-
-          {/* AI Mode dropup: Reasoning + Deep Research — desktop only */}
-          <span className="hidden sm:inline-flex">
-          {(() => {
-            const [modeOpen, setModeOpen] = deepResearchModeDropup;
-            // eslint-disable-next-line no-unused-vars
-            const hasActive = reasoningEnabled || deepResearchMode;
-            return (
-              <div ref={modeDropupRef} className="relative">
-                {modeOpen && (
-                  <div
-                    role="menu"
-                    aria-label="AI Mode"
-                    className="absolute bottom-full left-0 z-50 mb-2 max-h-[70vh] w-[min(208px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
-                  >
-                    <div className="border-b border-[#F3F4F6] px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">AI Mode</p>
-                    </div>
-                    <div className="py-1">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { onReasoningToggle?.(); setModeOpen(false); }}
-                        className={`ma-focus flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-100 ${
-                          reasoningEnabled ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                        }`}
-                      >
-                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                          reasoningEnabled ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                        }`}>
-                          <Brain size={14} strokeWidth={1.75} />
-                        </span>
-                        <span>
-                          <span className={`block text-[13px] font-medium ${
-                            reasoningEnabled ? "text-[#3B6EF6]" : "text-[#111111]"
-                          }`}>Reasoning</span>
-                          <span className="block text-[11px] text-[#9CA3AF]">Tampilkan proses berpikir AI</span>
-                        </span>
-                        {reasoningEnabled && <Check size={13} strokeWidth={2.5} className="ml-auto shrink-0 text-[#3B6EF6]" />}
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { setDeepResearchMode((d) => !d); setModeOpen(false); }}
-                        className={`ma-focus flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-100 ${
-                          deepResearchMode ? "bg-[#FFF7ED]" : "hover:bg-[#F7F7F8]"
-                        }`}
-                      >
-                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                          deepResearchMode ? "bg-[#C2410C] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                        }`}>
-                          <Telescope size={14} strokeWidth={1.75} />
-                        </span>
-                        <span>
-                          <span className={`block text-[13px] font-medium ${
-                            deepResearchMode ? "text-[#C2410C]" : "text-[#111111]"
-                          }`}>Deep Research</span>
-                          <span className="block text-[11px] text-[#9CA3AF]">Riset mendalam multi-sumber</span>
-                        </span>
-                        {deepResearchMode && <Check size={13} strokeWidth={2.5} className="ml-auto shrink-0 text-[#C2410C]" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <Tooltip delayDuration={200}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="ai-mode-button"
-                      aria-label="AI Mode"
-                      onClick={() => setModeOpen((o) => !o)}
-                      className={`ma-focus relative grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-                        deepResearchMode
-                          ? "bg-[#FFF7ED] text-[#C2410C]"
-                          : reasoningEnabled
-                          ? "bg-[#EFF4FF] text-[#3B6EF6]"
-                          : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
-                      }`}
-                    >
-                      {deepResearchMode ? (
-                        <Telescope size={18} strokeWidth={1.75} />
-                      ) : (
-                        <Brain size={18} strokeWidth={1.75} />
-                      )}
-                      {hasActive && (
-                        <span className={`absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-white ${
-                          deepResearchMode ? "bg-[#C2410C]" : "bg-[#3B6EF6]"
-                        }`} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    {deepResearchMode ? "Deep Research aktif" : reasoningEnabled ? "Reasoning aktif" : "AI Mode"}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            );
-          })()}
-          </span>{/* end sm:inline-flex for AI mode */}
-
-          {/* Mobile overflow menu */}
-          <div className="relative sm:hidden" ref={mobileMenuRef}>
-            {mobileMenuOpen && (
-              <div
-                role="menu"
-                aria-label="More options"
-                className="absolute bottom-full left-0 z-50 mb-2 max-h-[70vh] w-[min(256px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
-                style={{animation: "slideUpFade 0.15s ease-out"}}
-              >
-                <div className="border-b border-[#F3F4F6] px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Search Mode</p>
-                </div>
-                <div className="py-1">
-                  {SEARCH_MODES.map((mode) => {
-                    const ModeIcon = mode.Icon;
-                    const isActive = searchMode === mode.id;
-                    return (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { setSearchMode(mode.id); setMobileMenuOpen(false); }}
-                        className={`ma-focus flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors duration-100 ${
-                          isActive ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                        }`}
-                      >
-                        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-                          isActive ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                        }`}>
-                          <ModeIcon size={13} strokeWidth={1.75} />
-                        </span>
-                        <span className={`text-[13px] font-medium ${isActive ? "text-[#3B6EF6]" : "text-[#111111]"}`}>{mode.label}</span>
-                        {isActive && <Check size={12} strokeWidth={2.5} className="ml-auto shrink-0 text-[#3B6EF6]" />}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="border-t border-[#F3F4F6] px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">AI Mode</p>
-                </div>
-                <div className="pb-1">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { onReasoningToggle?.(); setMobileMenuOpen(false); }}
-                    className={`ma-focus flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors duration-100 ${
-                      reasoningEnabled ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                    }`}
-                  >
-                    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-                      reasoningEnabled ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                    }`}>
-                      <Brain size={13} strokeWidth={1.75} />
-                    </span>
-                    <span className={`text-[13px] font-medium ${reasoningEnabled ? "text-[#3B6EF6]" : "text-[#111111]"}`}>Reasoning</span>
-                    {reasoningEnabled && <Check size={12} strokeWidth={2.5} className="ml-auto shrink-0 text-[#3B6EF6]" />}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { setDeepResearchMode((d) => !d); setMobileMenuOpen(false); }}
-                    className={`ma-focus flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors duration-100 ${
-                      deepResearchMode ? "bg-[#FFF7ED]" : "hover:bg-[#F7F7F8]"
-                    }`}
-                  >
-                    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-                      deepResearchMode ? "bg-[#C2410C] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                    }`}>
-                      <Telescope size={13} strokeWidth={1.75} />
-                    </span>
-                    <span className={`text-[13px] font-medium ${deepResearchMode ? "text-[#C2410C]" : "text-[#111111]"}`}>Deep Research</span>
-                    {deepResearchMode && <Check size={12} strokeWidth={2.5} className="ml-auto shrink-0 text-[#C2410C]" />}
-                  </button>
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              aria-label="More options"
-              onClick={() => setMobileMenuOpen((o) => !o)}
-              className={`ma-focus relative grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-                (searchMode !== "off" || reasoningEnabled || deepResearchMode)
-                  ? "bg-[#EFF4FF] text-[#3B6EF6]"
-                  : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
-              }`}
-            >
-              <SlidersHorizontal size={18} strokeWidth={1.75} />
-              {(searchMode !== "off" || reasoningEnabled || deepResearchMode) && (
-                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#3B6EF6] ring-2 ring-white" />
-              )}
-            </button>
-          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -954,13 +709,13 @@ export const PromptComposer = ({
           )}
         </div>
       </div>
+      </div>
 
       <SlashCommandPalette
         query={value}
         visible={slashVisible}
         onSelect={handleSlashSelect}
       />
-    </div>
     </div>
   );
 };

@@ -147,6 +147,7 @@ class ChatStreamRequest(BaseModel):
     web_search: bool = False
     reasoning: bool = True
     search_mode_prompt: str = ""
+    skill_slug: Optional[str] = None
 
     @field_validator("model_id", "room", mode="before")
     @classmethod
@@ -382,6 +383,36 @@ def format_search_context(query: str, results: Sequence[dict]) -> str:
     return context[:max_context]
 
 
+# ── Skills ───────────────────────────────────────────────────────────────────
+
+SKILLS_DIR = ROOT_DIR.parent / "skills"
+
+BUILTIN_SKILLS = [
+    {"slug": "email-writer",   "name": "Email Writer",    "icon": "📧", "category": "writing",  "description": "Write professional emails with proper structure"},
+    {"slug": "code-reviewer",  "name": "Code Reviewer",   "icon": "🔍", "category": "coding",   "description": "Review code for bugs, performance, and best practices"},
+    {"slug": "data-analyst",   "name": "Data Analyst",    "icon": "📊", "category": "analysis", "description": "Analyze data and provide insights"},
+    {"slug": "content-writer", "name": "Content Writer",  "icon": "✍️", "category": "writing",  "description": "Create engaging content for social media and blogs"},
+    {"slug": "seo-writer",     "name": "SEO Writer",      "icon": "🔎", "category": "writing",  "description": "Write SEO-optimized articles that rank on Google"},
+]
+
+
+def load_skill(slug: str) -> Optional[str]:
+    """Load skill content from static .md file."""
+    path = SKILLS_DIR / f"{slug}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return None
+
+
+@api_router.get("/skills")
+async def list_skills():
+    skills = []
+    for s in BUILTIN_SKILLS:
+        content = load_skill(s["slug"])
+        skills.append({**s, "available": content is not None})
+    return JSONResponse({"skills": skills})
+
+
 def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> List[dict]:
     room_line = f"Current room: {payload.room}." if payload.room else ""
     attachment_line = (
@@ -428,6 +459,16 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
         "3. JANGAN tanya klarifikasi lagi\n"
         "Contoh: user kirim '[QNA_ANSWER] Kuis: pertanyaan untuk menguji pengetahuan' \u2192 langsung buat soal kuis, tidak perlu tanya lagi."
     )
+    # Inject skill if specified
+    skill_block = ""
+    if payload.skill_slug:
+        skill_content = load_skill(payload.skill_slug)
+        if skill_content:
+            skill_block = (
+                f"\n\n---SKILL START---\n{skill_content}\n---SKILL END---\n"
+                "Baca dan ikuti instruksi skill di atas sebelum merespons."
+            )
+
     system = {
         "role": "system",
         "content": (
@@ -445,6 +486,7 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
             "Sertakan semua konten yang diminta secara lengkap \u2014 judul, isi, tabel, catatan, dll \u2014 seolah-olah itu adalah dokumen final yang siap dicetak. "
             "Di akhir respons, tambahkan baris: '> **[DOKUMEN SIAP]** Klik tombol *Unduh Dokumen* di bawah untuk menyimpan sebagai PDF, Word, atau format lainnya.' "
             + qna_rules
+            + skill_block
             + f"{room_line} {attachment_line}".strip()
             + search_mode_line
             + web_line
@@ -1712,23 +1754,76 @@ async def run_deep_research(query: str):
         # Include more content per source for richer report
         web_context_parts.append(f"### [{i+1}] {title}\nURL: {url}\n\n{content[:3000]}")
 
+    # ── STEP 3.5: Search images via Firecrawl or Tavily ──────────────────────
+    image_step = "Mencari gambar relevan..."
+    steps.append(image_step)
+    yield evt({"type": "step", "action": "image", "message": image_step, "step": len(steps)})
+
+    images: List[dict] = []  # [{url, alt, source_url}]
+    image_query = f"{query} photo portrait"
+    try:
+        # Try Firecrawl search for images first (has image metadata)
+        if env_str("FIRECRAWL_API_KEY"):
+            fc_results = await firecrawl_search(image_query, max_results=5)
+            for r in fc_results:
+                # Extract image URLs from markdown content
+                img_matches = re.findall(r'!\[([^\]]*)\]\((https?://[^)]+\.(?:jpg|jpeg|png|webp|gif)[^)]*)\)', r.get("content", ""))
+                for alt, img_url in img_matches[:3]:
+                    if img_url not in [im["url"] for im in images]:
+                        images.append({"url": img_url, "alt": alt or query, "source_url": r.get("url", "")})
+                if len(images) >= 6:
+                    break
+        # Fallback: try Tavily with images enabled
+        if not images and env_str("TAVILY_API_KEY"):
+            try:
+                tv_payload = {
+                    "api_key": env_str("TAVILY_API_KEY"),
+                    "query": image_query,
+                    "search_depth": "basic",
+                    "max_results": 5,
+                    "include_images": True,
+                }
+                async with httpx.AsyncClient(timeout=10) as client:
+                    tv_resp = await client.post("https://api.tavily.com/search", json=tv_payload)
+                    tv_data = tv_resp.json()
+                for img_url in (tv_data.get("images") or [])[:6]:
+                    images.append({"url": img_url, "alt": query, "source_url": ""})
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("Image search failed: %s", exc)
+
+    if images:
+        yield evt({"type": "images_found", "images": images[:6]})
+
     # ── STEP 4: Synthesize report ─────────────────────────────────────────────
     synth_step = f"Mensintesis {len(sources)} sumber menjadi laporan mendalam..."
     steps.append(synth_step)
     yield evt({"type": "step", "action": "synthesize", "message": synth_step, "step": len(steps)})
 
     context_text = "\n\n".join(web_context_parts)
-    source_list = "\n".join(f"[{i+1}] {s['title']}\n    {s['url']}" for i, s in enumerate(sources))
+
+    # Build clickable reference list with markdown links
+    ref_list = "\n".join(
+        f"[{i+1}] [{s['title']}]({s['url']})"
+        for i, s in enumerate(sources)
+    )
+
+    # Build image context for model
+    image_context = ""
+    if images:
+        image_context = "\n\nGambar yang tersedia untuk digunakan dalam laporan (gunakan format markdown ![alt](url)):\n"
+        image_context += "\n".join(f"- ![{img['alt']}]({img['url']})" for img in images[:4])
 
     report_prompt = f"""Topik riset: {query}
 
 Anda memiliki {len(sources)} sumber web berikut:
 
 {context_text}
-
+{image_context}
 ---
 Daftar sumber lengkap:
-{source_list}
+{ref_list}
 
 Tulis laporan riset KOMPREHENSIF dan MENDALAM dalam Bahasa Indonesia.
 Laporan harus:
@@ -1736,8 +1831,11 @@ Laporan harus:
 - Berstruktur dengan heading yang jelas
 - Mencakup semua aspek penting dari data yang ada
 - Menyertakan data, angka, dan fakta spesifik dari sumber
-- Sitasi inline menggunakan [1], [2], dst
-- Daftar referensi lengkap di akhir
+- Sitasi inline: gunakan format superscript link seperti ini: [judul sumber](url) atau cukup \u00b9[](url) \u00b2[](url) — JANGAN gunakan format [[1]](url)
+- Sisipkan gambar yang relevan menggunakan markdown: ![deskripsi gambar](url_gambar) di dalam teks laporan
+- Di akhir laporan, tambahkan bagian **## Referensi** dengan daftar:
+  - [judul artikel](url)
+  - [judul artikel](url)
 - Berikan analisis dan insight, bukan sekadar ringkasan"""
 
     try:

@@ -29,11 +29,11 @@ const INLINE_PATTERNS = [
   /`([^`]+)`/,                                         // inline code
   /\*\*([^*]+)\*\*/,                                   // bold
   /\*([^*]+)\*/,                                       // italic
+  /!\[([^\]]*)\]\(([^)]+)\)/,                           // image (must come before link)
   /\[([^\]]+)\]\(([^)]+)\)/,                            // link
-  /!\[([^\]]*)\]\(([^)]+)\)/,                           // image
   /~~([^~]+)~~/,                                       // strikethrough
   /\$([^$]+)\$/,                                       // inline math $...$
-  /\\\(([\s\S]*?)\\\)/,                                // inline math \(...\)
+  /\\\(([\.\s\S]*?)\\\)/,                                // inline math \(...\)
 ];
 
 const renderInline = (v) => {
@@ -56,16 +56,30 @@ const renderInline = (v) => {
     if (raw.startsWith("[")) {
       const m = raw.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (m) {
+        const label = m[1];
+        const url = m[2];
         let host = "";
-        try { host = new URL(m[2]).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+        try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+        // Numeric-only labels (citation refs like [1], [2]) — show as favicon icon only
+        const isNumericRef = /^\d+$/.test(label.trim());
+        if (isNumericRef && host) {
+          return (
+            <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+              title={host}
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded align-middle transition-opacity hover:opacity-70">
+              <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`}
+                alt={host} className="h-3.5 w-3.5 rounded-sm" loading="lazy" />
+            </a>
+          );
+        }
         return (
-          <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer"
+          <a key={i} href={url} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[0.88em] text-[#374151] no-underline transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]">
             {host && (
-              <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(m[2])}&sz=32`}
+              <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`}
                 alt="" className="h-3 w-3 rounded-sm" loading="lazy" />
             )}
-            <span>{m[1]}</span>
+            <span>{label}</span>
           </a>
         );
       }

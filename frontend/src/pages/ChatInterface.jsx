@@ -108,6 +108,7 @@ export default function ChatInterface() {
         webSearchAtSend = false,
         reasoningAtSend = true,
         searchModePrompt = "",
+        skillSlug = null,
       } = opts;
       // Abort any existing generation before starting a new one
       if (abortRef.current) {
@@ -127,6 +128,7 @@ export default function ChatInterface() {
         autoMode,
         room: roomAtSend,
         webSearch: webSearchAtSend,
+        skillSlug,
         reasoning: reasoningAtSend,
         searchModePrompt,
         signal: controller.signal,
@@ -317,7 +319,7 @@ export default function ChatInterface() {
   }, [autoMode, model, messages, updateMessage]);
 
   const sendMessage = useCallback(
-    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false) => {
+    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null) => {
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
         handleFileUploadAnalysis(text, uploadedFiles);
@@ -393,6 +395,7 @@ export default function ChatInterface() {
         webSearchAtSend: shouldWebSearch,
         reasoningAtSend: reasoningEnabled,
         searchModePrompt,
+        skillSlug,
       });
     },
     [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis],
@@ -439,6 +442,12 @@ export default function ChatInterface() {
             if (m.id !== researchMsgId) return m;
             const dr = m.deepResearch || {};
             return { ...m, deepResearch: { ...dr, sourcesFound: [...(dr.sourcesFound || []), { url: evt.url, title: evt.title || evt.url }] } };
+          }));
+        } else if (evt.type === "images_found") {
+          setMessages((prev) => prev.map((m) => {
+            if (m.id !== researchMsgId) return m;
+            const dr = m.deepResearch || {};
+            return { ...m, deepResearch: { ...dr, images: evt.images || [] } };
           }));
         } else if (evt.type === "complete") {
           const reportText = (evt.report || "").trim();
@@ -741,6 +750,7 @@ export default function ChatInterface() {
                       steps={m.deepResearch?.steps || []}
                       sources={m.deepResearch?.sources || []}
                       sourcesFound={m.deepResearch?.sourcesFound || []}
+                      images={m.deepResearch?.images || []}
                       phase={m.deepResearch?.phase || "running"}
                       query={m.deepResearch?.query || m.prompt || ""}
                       elapsed={m.deepResearch?.elapsed || ""}

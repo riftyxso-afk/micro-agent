@@ -166,6 +166,7 @@ export function streamChat({
   webSearch = false,
   reasoning = true,
   searchModePrompt = "",
+  skillSlug = null,
   signal,
   onMeta,
   onStatus,
@@ -198,6 +199,7 @@ export function streamChat({
       web_search: webSearch,
       reasoning,
       search_mode_prompt: searchModePrompt || "",
+      skill_slug: skillSlug || null,
     }),
     signal,
   })

@@ -23,7 +23,7 @@ const GridLoader = ({ color = "currentColor", size = 13 }) => (
  *  query       - original research query
  *  elapsed     - time string e.g. "1m 23s"
  */
-export const DeepResearchPanel = ({ steps = [], sources = [], sourcesFound = [], phase = "running", query = "", elapsed = "" }) => {
+export const DeepResearchPanel = ({ steps = [], sources = [], sourcesFound = [], images = [], phase = "running", query = "", elapsed = "" }) => {
   const [expanded, setExpanded] = useState(true);
   const isDone = phase === "done";
   const isError = phase === "error";
@@ -102,7 +102,7 @@ export const DeepResearchPanel = ({ steps = [], sources = [], sourcesFound = [],
             </div>
           )}
 
-          {/* Sources found */}
+          {/* Sources read with favicon + OG image preview */}
           {sources.length > 0 && (
             <div className="border-t border-[#F3F4F6] px-4 pb-3 pt-2">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
@@ -111,23 +111,83 @@ export const DeepResearchPanel = ({ steps = [], sources = [], sourcesFound = [],
               <div className="space-y-0.5">
                 {sources.map((s, i) => {
                   const host = (() => { try { return new URL(s.url).hostname.replace(/^www\./, ""); } catch { return s.url; } })();
+                  const ogImg = `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${encodeURIComponent(s.url)}&size=64`;
                   return (
                     <a
                       key={i}
                       href={s.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="group flex items-center gap-2 rounded-lg px-1 py-1 text-[12px] text-[#6B7280] transition-colors hover:bg-[#F7F7F8] hover:text-[#111111]"
+                      className="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-[12px] text-[#6B7280] transition-colors hover:bg-[#F7F7F8] hover:text-[#111111]"
+                    >
+                      <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E5E7EB] bg-[#F9FAFB]">
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(s.url)}&sz=32`}
+                          alt=""
+                          className="h-5 w-5 object-contain"
+                          loading="lazy"
+                        />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-[#374151] group-hover:text-[#111111]">{s.title || host}</span>
+                        <span className="block text-[10px] text-[#9CA3AF]">{host}</span>
+                      </span>
+                      <ExternalLink size={11} strokeWidth={1.75} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Images found */}
+          {images && images.length > 0 && (
+            <div className="border-t border-[#F3F4F6] px-4 pb-3 pt-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                {images.length} gambar ditemukan
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {images.map((img, i) => (
+                  <a key={i} href={img.source_url || img.url} target="_blank" rel="noreferrer"
+                    className="group relative h-16 w-16 overflow-hidden rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] hover:border-[#0369A1]"
+                  >
+                    <img
+                      src={img.url}
+                      alt={img.alt || ""}
+                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                      loading="lazy"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sources found during search (preview thumbnails) */}
+          {!isDone && sourcesFound && sourcesFound.length > 0 && (
+            <div className="border-t border-[#F3F4F6] px-4 pb-3 pt-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                {sourcesFound.length} sumber ditemukan
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {sourcesFound.slice(0, 12).map((s, i) => {
+                  const host = (() => { try { return new URL(s.url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+                  return (
+                    <a
+                      key={i}
+                      href={s.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-1 text-[11px] text-[#6B7280] transition-colors hover:bg-white hover:text-[#111111]"
                     >
                       <img
                         src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(s.url)}&sz=32`}
                         alt=""
-                        className="h-4 w-4 shrink-0 rounded"
+                        className="h-3 w-3 rounded-sm"
                         loading="lazy"
                       />
-                      <span className="min-w-0 flex-1 truncate">{s.title || host}</span>
-                      <span className="shrink-0 text-[10px] text-[#9CA3AF]">{host}</span>
-                      <ExternalLink size={10} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+                      <span className="max-w-[100px] truncate">{host || s.title}</span>
                     </a>
                   );
                 })}
