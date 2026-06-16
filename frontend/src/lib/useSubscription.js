@@ -84,6 +84,21 @@ export function useSubscription() {
   const isUltra = plan === "ultra";
   const isActive = subscription?.status === "active";
 
+  const decrementCredits = useCallback(async (cost = 1) => {
+    if (!user) return;
+    // Optimistic local update
+    setSubscription((prev) => prev ? { ...prev, credits: Math.max(0, (prev.credits || 0) - cost) } : prev);
+    // Sync to backend
+    try {
+      const token = session?.access_token;
+      await fetch(`${API_BASE_URL}/api/user/credits/deduct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ cost }),
+      });
+    } catch {}
+  }, [user, session]);
+
   return {
     subscription,
     plan,
@@ -93,6 +108,7 @@ export function useSubscription() {
     isActive,
     loading,
     refresh: fetchSubscription,
+    decrementCredits,
     PLAN_FEATURES,
   };
 }

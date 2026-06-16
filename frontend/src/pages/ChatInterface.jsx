@@ -80,7 +80,33 @@ export default function ChatInterface() {
 
   // Supabase session
   const { user, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
-  const { plan, isPro, isUltra, features, subscription } = useSubscription();
+
+  // Load existing session from history
+  useEffect(() => {
+    const sid = seed?.sessionId;
+    if (!sid || !user) return;
+    import("@/lib/supabase").then(({ fetchMessages, isSupabaseEnabled }) => {
+      if (!isSupabaseEnabled) return;
+      setSessionId(sid);
+      fetchMessages(sid).then((msgs) => {
+        if (!msgs.length) return;
+        const restored = msgs.map((m) => ({
+          id: m.id || nextId(),
+          role: m.role,
+          text: m.text || "",
+          model: m.model_id ? { id: m.model_id, name: m.model_id, credits: 1 } : { id: "deepseek-v4-flash", name: "DeepSeek v4 Flash", credits: 1 },
+          state: "completed",
+          status: "history",
+          searchMode: m.search_mode || "off",
+          skillSlug: m.skill_slug || null,
+          imageUrl: m.image_url || null,
+        }));
+        setMessages(restored);
+        savedMsgCountRef.current = restored.length;
+      }).catch(() => {});
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
   const [sessionId, setSessionId] = useState(null);
   const savedMsgCountRef = useRef(0);
 
@@ -307,7 +333,8 @@ export default function ChatInterface() {
               text: "No response content received.",
             });
           }
-          setCredits((c) => Math.max(0, c - cost));
+          setCredits((c) => c !== null ? Math.max(0, c - cost) : null);
+          if (user) decrementCredits(cost); // sync to backend
           setIsGenerating(false);
           abortRef.current = null;
         },
@@ -325,7 +352,7 @@ export default function ChatInterface() {
         },
       });
     },
-    [autoMode, updateMessage],
+    [autoMode, updateMessage], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
@@ -449,7 +476,7 @@ export default function ChatInterface() {
         effortLevel,
       });
     },
-    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT], // eslint-disable-line react-hooks/exhaustive-deps
+    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT, decrementCredits, user], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const handleDeepResearch = useCallback(async (query) => {
@@ -679,7 +706,9 @@ export default function ChatInterface() {
         (m.state === "pending" || m.state === "thinking" || m.state === "streaming"),
     );
     if (generatingMsg) {
-      setCredits((c) => c !== null ? Math.max(0, c - (generatingMsg.model.credits || 0)) : null);
+      const stopCost = generatingMsg.model.credits || 0;
+      setCredits((c) => c !== null ? Math.max(0, c - stopCost) : null);
+      if (user && stopCost > 0) decrementCredits(stopCost);
     }
     setMessages((prev) =>
       prev.map((m) =>

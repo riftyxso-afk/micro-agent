@@ -960,12 +960,32 @@ async def get_subscription(request: Request):
     uid = _get_user_id(request)
     if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
     try:
-        res = supa.table("subscriptions").select("*").eq("user_id", uid).order("created_at", desc=True).limit(1).execute()
+        res = supa.table("subscriptions").select("*").eq("user_id", uid).eq("status", "active").order("activated_at", desc=True).limit(1).execute()
         if res.data:
             return JSONResponse({"subscription": res.data[0]})
         return JSONResponse({"subscription": {"plan": "free", "status": "active", "credits": PLAN_CREDITS["free"]}})
     except Exception as e:
         return JSONResponse({"subscription": {"plan": "free", "status": "active", "credits": PLAN_CREDITS["free"]}})
+
+
+@api_router.post("/user/credits/deduct")
+async def deduct_credits(request: Request):
+    """Deduct credits after a prompt is sent"""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    cost = int(body.get("cost", 1))
+    try:
+        res = supa.table("subscriptions").select("id,credits,plan").eq("user_id", uid).eq("status", "active").order("activated_at", desc=True).limit(1).execute()
+        if not res.data:
+            return JSONResponse({"credits": 0, "plan": "free"})
+        sub = res.data[0]
+        new_credits = max(0, (sub["credits"] or 0) - cost)
+        supa.table("subscriptions").update({"credits": new_credits}).eq("id", sub["id"]).execute()
+        return JSONResponse({"credits": new_credits, "plan": sub["plan"]})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @api_router.post("/webhooks/pakasir")
