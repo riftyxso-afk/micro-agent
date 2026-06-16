@@ -2559,47 +2559,90 @@ async def run_deep_research(query: str):
         # Include more content per source for richer report
         web_context_parts.append(f"### [{i+1}] {title}\nURL: {url}\n\n{content[:3000]}")
 
-    # ── STEP 3.5: Search images via Firecrawl or Tavily ──────────────────────
+    # ── STEP 3.5: Search images (parallel: Firecrawl + Tavily) ──────────────────────
     image_step = "Mencari gambar relevan..."
     steps.append(image_step)
     yield evt({"type": "step", "action": "image", "message": image_step, "step": len(steps)})
 
     images: List[dict] = []  # [{url, alt, source_url}]
-    image_query = f"{query} photo portrait"
-    try:
-        # Try Firecrawl search for images first (has image metadata)
-        if env_str("FIRECRAWL_API_KEY"):
-            fc_results = await firecrawl_search(image_query, max_results=5)
+    # Better query — no forced 'photo portrait' suffix
+    image_query = query.strip()
+
+    # CDN-friendly image URL patterns (prefer wikimedia, imgur, unsplash, etc)
+    CDN_DOMAINS = ("upload.wikimedia.org", "commons.wikimedia.org", "images.unsplash.com",
+                   "i.imgur.com", "cdn.pixabay.com", "upload.wikimedia", ".cdn.",
+                   "static.", "media.", "img.", "image.", "photo.")
+
+    def is_cdn_url(url: str) -> bool:
+        return any(d in url.lower() for d in CDN_DOMAINS)
+
+    async def fetch_firecrawl_images() -> List[dict]:
+        found = []
+        try:
+            fc_results = await firecrawl_search(image_query, max_results=8)
             for r in fc_results:
-                # Extract image URLs from markdown content
-                img_matches = re.findall(r'!\[([^\]]*)\]\((https?://[^)]+\.(?:jpg|jpeg|png|webp|gif)[^)]*)\)', r.get("content", ""))
-                for alt, img_url in img_matches[:3]:
-                    if img_url not in [im["url"] for im in images]:
-                        images.append({"url": img_url, "alt": alt or query, "source_url": r.get("url", "")})
-                if len(images) >= 6:
+                content = r.get("content", "")
+                # Extract all image URLs from markdown
+                img_matches = re.findall(r'!\[([^\]]*)\]\((https?://[^)]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^)]*)?\))', content)
+                for alt, img_url in img_matches[:5]:
+                    # Clean URL — remove trailing paren if any
+                    img_url = img_url.rstrip(")")
+                    if img_url not in [im["url"] for im in found] and len(img_url) < 500:
+                        found.append({"url": img_url, "alt": alt.strip() or query, "source_url": r.get("url", ""), "cdn": is_cdn_url(img_url)})
+                if len(found) >= 9:
                     break
-        # Fallback: try Tavily with images enabled
-        if not images and env_str("TAVILY_API_KEY"):
-            try:
-                tv_payload = {
-                    "api_key": env_str("TAVILY_API_KEY"),
-                    "query": image_query,
-                    "search_depth": "basic",
-                    "max_results": 5,
-                    "include_images": True,
-                }
-                async with httpx.AsyncClient(timeout=10) as client:
-                    tv_resp = await client.post("https://api.tavily.com/search", json=tv_payload)
-                    tv_data = tv_resp.json()
-                for img_url in (tv_data.get("images") or [])[:6]:
-                    images.append({"url": img_url, "alt": query, "source_url": ""})
-            except Exception:
-                pass
+        except Exception as e:
+            logger.warning("Firecrawl image search failed: %s", e)
+        return found
+
+    async def fetch_tavily_images() -> List[dict]:
+        found = []
+        try:
+            tv_payload = {
+                "api_key": env_str("TAVILY_API_KEY"),
+                "query": image_query,
+                "search_depth": "basic",
+                "max_results": 8,
+                "include_images": True,
+            }
+            async with httpx.AsyncClient(timeout=12) as client:
+                tv_resp = await client.post("https://api.tavily.com/search", json=tv_payload)
+                tv_data = tv_resp.json()
+            for img_url in (tv_data.get("images") or [])[:9]:
+                if img_url not in [im["url"] for im in found] and len(img_url) < 500:
+                    found.append({"url": img_url, "alt": query, "source_url": "", "cdn": is_cdn_url(img_url)})
+        except Exception as e:
+            logger.warning("Tavily image search failed: %s", e)
+        return found
+
+    # Run both in parallel (don't skip if one fails)
+    try:
+        import asyncio as _asyncio
+        tasks = []
+        if env_str("FIRECRAWL_API_KEY"):
+            tasks.append(fetch_firecrawl_images())
+        if env_str("TAVILY_API_KEY"):
+            tasks.append(fetch_tavily_images())
+        if tasks:
+            results = await _asyncio.gather(*tasks, return_exceptions=True)
+            all_imgs = []
+            for r in results:
+                if isinstance(r, list):
+                    all_imgs.extend(r)
+            # Deduplicate by URL
+            seen = set()
+            for img in all_imgs:
+                if img["url"] not in seen:
+                    seen.add(img["url"])
+                    images.append(img)
+            # Sort: CDN images first
+            images.sort(key=lambda x: (0 if x.get("cdn") else 1))
+            images = images[:9]
     except Exception as exc:
         logger.warning("Image search failed: %s", exc)
 
     if images:
-        yield evt({"type": "images_found", "images": images[:6]})
+        yield evt({"type": "images_found", "images": images})
 
     # ── STEP 4: Synthesize report ─────────────────────────────────────────────
     synth_step = f"Mensintesis {len(sources)} sumber menjadi laporan mendalam..."
