@@ -1,4 +1,5 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Inline helpers                                                     */
@@ -97,6 +98,9 @@ const renderInline = (v) => {
             </a>
           );
         }
+        // Inside references section → full label + favicon
+        // Inside body text → favicon icon only
+        const isRefSection = false; // handled at block level
         return (
           <a key={i} href={url} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-1 py-0.5 text-[0.88em] text-[#374151] no-underline transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]">
@@ -172,6 +176,67 @@ const MathBlock = ({ code }) => (
 /* ------------------------------------------------------------------ */
 /*  MarkdownMessage main                                               */
 /* ------------------------------------------------------------------ */
+
+// Detect if a heading/section is a references section
+const isRefHeading = (content = "") =>
+  /^(referensi|references|sumber|sources|daftar\s+sumber|daftar\s+pustaka)/i.test(content.trim());
+
+// Collapsible references section
+const ReferencesSection = ({ blocks }) => {
+  const [open, setOpen] = useState(false);
+  const count = blocks.filter(b => b.type === "ul" || b.type === "ol").reduce((acc, b) => acc + b.items.length, 0)
+    || blocks.filter(b => b.type === "p" && b.content?.trim()).length;
+  return (
+    <div className="mt-4 overflow-hidden rounded-2xl border border-[#E5E7EB]">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center justify-between bg-[#F9FAFB] px-4 py-2.5 text-left hover:bg-[#F3F4F6] transition-colors">
+        <span className="flex items-center gap-2 text-[13px] font-semibold text-[#374151]">
+          <ExternalLink size={13} strokeWidth={1.75} className="text-[#9CA3AF]" />
+          Referensi{count > 0 ? ` (${count})` : ""}
+        </span>
+        {open ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+      </button>
+      {open && (
+        <div className="divide-y divide-[#F3F4F6] px-4 py-3 space-y-1">
+          {blocks.slice(1).map((block, idx) => {
+            if (block.type === "ul" || block.type === "ol") {
+              return block.items.map((item, i) => (
+                <RefItem key={`${idx}-${i}`} content={item} />
+              ));
+            }
+            if (block.type === "p" && block.content?.trim()) {
+              return <RefItem key={idx} content={block.content} />;
+            }
+            return null;
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const RefItem = ({ content }) => {
+  // Extract [label](url) from content
+  const m = content.match(/\[([^\]]+)\]\(([^)]+)\)/);
+  if (m) {
+    const label = m[1];
+    const url = m[2];
+    let host = "";
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-2 py-1.5 text-[13px] text-[#374151] hover:text-[#1D4ED8] transition-colors">
+        {host && (
+          <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`}
+            alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm" loading="lazy" />
+        )}
+        <span className="flex-1 truncate">{label}</span>
+        <ExternalLink size={11} strokeWidth={1.75} className="shrink-0 text-[#D1D5DB]" />
+      </a>
+    );
+  }
+  return <p className="py-1 text-[13px] text-[#6B7280]">{content}</p>;
+};
 
 export const MarkdownMessage = ({ text = "" }) => {
   const lines = normalizeText(text).replace(/\r\n/g, "\n").split("\n");
@@ -338,10 +403,19 @@ export const MarkdownMessage = ({ text = "" }) => {
     blocks.push({ type: "p", content: paraLines.join(" ") });
   }
 
-  return (
-    <div className="space-y-4 text-[15px] leading-[1.75] text-[#1F2937]">
-      {blocks.map((block, index) => {
-        switch (block.type) {
+  // Split blocks into main content and references section
+  let refStart = -1;
+  for (let idx = 0; idx < blocks.length; idx++) {
+    if (blocks[idx].type === "heading" && isRefHeading(blocks[idx].content)) {
+      refStart = idx;
+      break;
+    }
+  }
+  const mainBlocks = refStart >= 0 ? blocks.slice(0, refStart) : blocks;
+  const refBlocks = refStart >= 0 ? blocks.slice(refStart) : [];
+
+  const renderBlock = (block, index) => {
+    switch (block.type) {
           case "code":
             return (
               <div key={index} className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-[#0F172A]">
@@ -426,7 +500,17 @@ export const MarkdownMessage = ({ text = "" }) => {
           default:
             return <p key={index}>{renderInline(block.content)}</p>;
         }
-      })}
+  };
+
+  return (
+    <div className="space-y-4 text-[15px] leading-[1.75] text-[#1F2937]">
+      {/* Main content */}
+      {mainBlocks.map((block, index) => renderBlock(block, index))}
+
+      {/* References section — collapsible */}
+      {refBlocks.length > 0 && (
+        <ReferencesSection blocks={refBlocks} />
+      )}
     </div>
   );
 };
