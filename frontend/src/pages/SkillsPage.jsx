@@ -20,7 +20,7 @@ export default function SkillsPage() {
   const [toggling, setToggling] = useState(null);
   const [message, setMessage] = useState(null);
 
-  useEffect(() => { fetchSkills(); fetchUserInstalls(); }, [user]);
+  useEffect(() => { fetchSkills(); fetchUserInstalls(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchUserInstalls = async () => {
     if (!isSupabaseEnabled || !user) return;
