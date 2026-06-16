@@ -99,12 +99,11 @@ const renderInline = (v) => {
         }
         return (
           <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[0.88em] text-[#374151] no-underline transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]">
+            className="inline-flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-1 py-0.5 text-[0.88em] text-[#374151] no-underline transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]">
             {host && (
               <img src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`}
-                alt="" className="h-3 w-3 rounded-sm" loading="lazy" />
+                alt="" className="h-3 w-3 shrink-0 rounded-sm" loading="lazy" />
             )}
-            <span>{label}</span>
           </a>
         );
       }
