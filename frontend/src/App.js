@@ -8,9 +8,13 @@ import SettingsPage from "@/pages/SettingsPage";
 import PricingPage from "@/pages/PricingPage";
 import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
+import SkillsPage from "@/pages/SkillsPage";
+import AuthPage from "@/pages/AuthPage";
+import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
   return (
+    <AuthProvider>
     <TooltipProvider delayDuration={200}>
       <BrowserRouter>
         <Routes>
@@ -21,6 +25,8 @@ function App() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/auth" element={<AuthPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster
@@ -35,6 +41,7 @@ function App() {
         }}
       />
     </TooltipProvider>
+    </AuthProvider>
   );
 }
 

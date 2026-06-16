@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/lib/AuthContext";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
@@ -30,18 +31,13 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const STATS = [
-  { icon: MessageSquare, label: "Conversations", value: "148" },
-  { icon: Zap, label: "Credits used", value: "5,230" },
-  { icon: Clock, label: "Hours saved", value: "42.5h" },
-  { icon: Award, label: "Streak", value: "12 days" },
+  { icon: MessageSquare, label: "Conversations", value: "—" },
+  { icon: Zap, label: "Credits used", value: "—" },
+  { icon: Clock, label: "Hours saved", value: "—" },
+  { icon: Award, label: "Streak", value: "—" },
 ];
 
-const ACTIVITY = [
-  { label: "Used GPT 5.5 Ultra", date: "2 hours ago", credits: 30 },
-  { label: "Web search: AI agents trends", date: "Yesterday", credits: 5 },
-  { label: "Switched to Pro plan", date: "1 week ago", credits: null },
-  { label: "Created project: Landing Page", date: "2 weeks ago", credits: null },
-];
+const ACTIVITY = [];
 
 const SectionCard = ({ children }) => (
   <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_1px_3px_rgba(17,24,39,0.04)]">
@@ -52,17 +48,26 @@ const SectionCard = ({ children }) => (
 export default function ProfilePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [activeDialog, setActiveDialog] = useState(null);
   const [editing, setEditing] = useState(false);
   const [profile, setProfile] = useState({
-    name: "Riftyxso",
-    email: "riftyxso@microagent.ai",
-    bio: "Building with AI. Exploring the edge of what's possible.",
-    location: "Jakarta, Indonesia",
-    website: "microagent.ai",
+    name: "",
+    email: "",
+    bio: "",
+    location: "",
+    website: "",
   });
   const [draft, setDraft] = useState(profile);
+
+  useEffect(() => {
+    if (!user) return;
+    const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "";
+    const initial = { name, email: user.email || "", bio: user.user_metadata?.bio || "", location: user.user_metadata?.location || "", website: user.user_metadata?.website || "" };
+    setProfile(initial);
+    setDraft(initial);
+  }, [user]);
 
   const handleNavChange = (navId) => {
     if (navId === "new") navigate("/home");
@@ -327,26 +332,10 @@ export default function ProfilePage() {
             <h2 className="font-heading text-base font-semibold text-[#111111]">Recent activity</h2>
             <SectionCard>
               <div className="p-2">
-                {ACTIVITY.map((item, i) => (
-                  <div key={i}>
-                    {i > 0 && <Separator className="bg-[#F0F1F3]" />}
-                    <div className="flex items-center justify-between px-3 py-3">
-                      <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <Activity size={14} strokeWidth={1.75} className="shrink-0 text-[#6B7280]" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm text-[#374151]">{item.label}</p>
-                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{item.date}</p>
-                        </div>
-                      </div>
-                      {item.credits !== null && (
-                        <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-[#F7F7F8] px-2 py-0.5 text-[11px] font-semibold text-[#6B7280]">
-                          <Zap size={10} strokeWidth={2.25} className="text-[#F59E0B]" />
-                          {item.credits}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <Activity size={18} strokeWidth={1.75} className="text-[#D1D5DB]" />
+                  <p className="text-sm text-[#9CA3AF]">No recent activity</p>
+                </div>
               </div>
             </SectionCard>
           </motion.div>

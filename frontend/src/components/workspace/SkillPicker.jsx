@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Zap, Search, X, Check, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Zap, Search, X, Check, ChevronRight, Plus } from "lucide-react";
 
 const API_BASE = process.env.REACT_APP_API_URL || "";
 
@@ -20,6 +21,7 @@ const CATEGORY_LABELS = {
  */
 export const SkillPicker = ({ activeSkill, onSelect, onClear }) => {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,7 +81,17 @@ export const SkillPicker = ({ activeSkill, onSelect, onClear }) => {
         >
           {/* Header */}
           <div className="border-b border-[#F3F4F6] px-3 py-2">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Skills</p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Skills</p>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); navigate("/skills"); }}
+                className="ma-focus grid h-5 w-5 place-items-center rounded-md text-[#9CA3AF] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
+                aria-label="Manage skills"
+              >
+                <Plus size={13} strokeWidth={1.75} />
+              </button>
+            </div>
             <div className="relative">
               <Search size={12} strokeWidth={1.75} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
               <input

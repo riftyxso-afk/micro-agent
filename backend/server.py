@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Iterator, List, Literal, Optional, Sequen
 import httpx
 import requests
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -73,22 +73,41 @@ def cors_origins() -> List[str]:
     return origins or ["*"]
 
 
+# ── MongoDB (legacy, optional) ───────────────────────────────────────────────
 mongo_url = env_str("MONGO_URL")
 db_name = env_str("DB_NAME")
-client = None
+mongo_client = None
 db = None
 
 if mongo_url and db_name and AsyncIOMotorClient is not None:
-    client = AsyncIOMotorClient(mongo_url)
-    db = client[db_name]
+    mongo_client = AsyncIOMotorClient(mongo_url)
+    db = mongo_client[db_name]
 else:
     logger.warning("MongoDB env is not configured; status-check persistence is disabled.")
+
+# ── Supabase ──────────────────────────────────────────────────────────────────
+try:
+    from supabase import create_client, Client as SupabaseClient
+except ImportError:
+    create_client = None
+    SupabaseClient = None
+
+SUPABASE_URL = env_str("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = env_str("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_ANON_KEY = env_str("SUPABASE_ANON_KEY")
+
+supa: Optional[Any] = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and create_client:
+    supa = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    logger.info("Supabase client initialized.")
+else:
+    logger.warning("Supabase not configured; auth/history disabled.")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     yield
-    if client is not None:
-        client.close()
+    if mongo_client is not None:
+        mongo_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -408,6 +427,18 @@ EFFORT_CONFIGS = {
 # ── Skills ───────────────────────────────────────────────────────────────────
 
 SKILLS_DIR = ROOT_DIR.parent / "skills"
+SKILLS_META_FILE = SKILLS_DIR / "skills.json"
+
+def load_skills_meta() -> dict:
+    if SKILLS_META_FILE.exists():
+        try:
+            return json.loads(SKILLS_META_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, Exception):
+            pass
+    return {}
+
+def save_skills_meta(meta: dict):
+    SKILLS_META_FILE.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
 BUILTIN_SKILLS = [
     {"slug": "email-writer",   "name": "Email Writer",    "icon": "📧", "category": "writing",  "description": "Write professional emails with proper structure"},
@@ -426,13 +457,514 @@ def load_skill(slug: str) -> Optional[str]:
     return None
 
 
+def slugify(name: str) -> str:
+    import re
+    slug = name.strip().lower().replace(" ", "-").replace("_", "-")
+    return re.sub(r"[^a-z0-9-]", "", slug)
+
+
+SKILL_SOURCE_FILE = "file"
+
+
 @api_router.get("/skills")
 async def list_skills():
+    meta = load_skills_meta()
     skills = []
     for s in BUILTIN_SKILLS:
         content = load_skill(s["slug"])
-        skills.append({**s, "available": content is not None})
+        skills.append({**s, "available": content is not None, "builtin": True})
+    for slug, m in meta.items():
+        content = load_skill(slug)
+        skills.append({
+            "slug": slug,
+            "name": m.get("name", slug),
+            "icon": m.get("icon", "🧠"),
+            "category": m.get("category", "custom"),
+            "description": m.get("description", ""),
+            "available": content is not None,
+            "builtin": False,
+            "source": m.get("source", "custom"),
+            "created_at": m.get("created_at", ""),
+        })
     return JSONResponse({"skills": skills})
+
+
+@api_router.post("/skills/create")
+async def create_skill(
+    name: str = Form(...),
+    description: str = Form(""),
+    icon: str = Form("🧠"),
+    category: str = Form("custom"),
+    content: str = Form(""),
+):
+    slug = slugify(name)
+    if not slug:
+        return JSONResponse({"error": "Invalid skill name"}, status_code=400)
+    # Build markdown content if not provided
+    if not content.strip():
+        content = f"# {name} Skill\n\n## Role\nYou are an expert in {name}.\n\n## Rules\n- Follow the instructions carefully\n- Provide high-quality output\n\n## Description\n{description}"
+    file_path = SKILLS_DIR / f"{slug}.md"
+    file_path.write_text(content.strip(), encoding="utf-8")
+    meta = load_skills_meta()
+    from datetime import datetime
+    meta[slug] = {
+        "name": name,
+        "description": description,
+        "icon": icon,
+        "category": category,
+        "source": "custom",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    save_skills_meta(meta)
+    return JSONResponse({"slug": slug, "name": name, "message": "Skill created"})
+
+
+@api_router.post("/skills/import-zip")
+async def import_skills_zip(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".zip"):
+        return JSONResponse({"error": "Please upload a .zip file"}, status_code=400)
+    import zipfile
+    import io
+    imported = []
+    errors = []
+    contents = await file.read()
+    with zipfile.ZipFile(io.BytesIO(contents)) as zf:
+        for entry in zf.namelist():
+            if entry.endswith(".md") and not entry.startswith("__"):
+                slug = Path(entry).stem
+                if not slug:
+                    continue
+                try:
+                    md_content = zf.read(entry).decode("utf-8")
+                    (SKILLS_DIR / f"{slug}.md").write_text(md_content, encoding="utf-8")
+                    imported.append(slug)
+                except Exception as e:
+                    errors.append(f"{entry}: {e}")
+    return JSONResponse({"imported": imported, "errors": errors})
+
+
+@api_router.post("/skills/import-github")
+async def import_skill_github(request: Request):
+    import re
+    import requests as req
+    # Accept both JSON and form body
+    body = {}
+    try:
+        json_body = await request.json()
+        body.update(json_body)
+    except Exception:
+        pass
+    try:
+        form_body = await request.form()
+        body.update(dict(form_body))
+    except Exception:
+        pass
+
+    raw = body.get("url") or body.get("repo") or ""
+
+    # Normalize: if it's not a full URL, treat as owner/repo shorthand
+    if not re.match(r"https?://", raw):
+        raw = f"https://github.com/{raw}"
+    # Parse GitHub URL: https://github.com/user/repo[/path/to/file.md]
+    m = re.match(r"https://github\.com/([^/]+)/([^/]+)/?.*", raw)
+    if not m:
+        return JSONResponse({"error": "Invalid GitHub URL"}, status_code=400)
+    user, repo = m.group(1), m.group(2)
+    # Determine file path
+    path_part = raw.split("/blob/", 1)
+    if len(path_part) > 1:
+        file_path = path_part[1].split("/", 1)
+        branch = file_path[0] if len(file_path) > 0 else "main"
+        rel_path = file_path[1] if len(file_path) > 1 else ""
+    else:
+        branch = "main"
+        rel_path = ""
+    if not rel_path:
+        # Look for skill files in the repo root (and subdirs)
+        skill_name = body.get("skill") or body.get("name") or ""
+        # Use GitHub Git Trees API for recursive search
+        tree_url = f"https://api.github.com/repos/{user}/{repo}/git/trees/{branch}?recursive=1"
+        try:
+            resp = req.get(tree_url, timeout=15)
+            if resp.status_code == 200:
+                tree = resp.json().get("tree", [])
+                md_files = [it["path"] for it in tree if it["path"].endswith(".md") and it["type"] == "blob"]
+                if not md_files:
+                    return JSONResponse({"error": "No .md files found in repo"}, status_code=404)
+                if skill_name:
+                    # Match by stem: "frontend-design" → "skills/frontend-design/SKILL.md" or "frontend-design.md"
+                    stem_match = skill_name.lower()
+                    matched = [f for f in md_files if f.endswith(".md") and stem_match in Path(f).stem.lower()]
+                    if not matched:
+                        # Try matching directory name: "skills/frontend-design/SKILL.md"
+                        matched = [f for f in md_files if f.endswith(".md") and f"/{stem_match}/" in f.lower()]
+                    if matched:
+                        rel_path = matched[0]
+                    else:
+                        rel_path = md_files[0]
+                else:
+                    rel_path = md_files[0]
+            else:
+                return JSONResponse({"error": f"GitHub API error: {resp.status_code}"}, status_code=400)
+        except Exception as e:
+            return JSONResponse({"error": f"Failed to fetch repo: {e}"}, status_code=400)
+    raw_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{rel_path}"
+    try:
+        resp = req.get(raw_url, timeout=15)
+        if resp.status_code != 200:
+            return JSONResponse({"error": f"Failed to fetch file: {resp.status_code}"}, status_code=400)
+        md_content = resp.text
+        slug = skill_name or Path(rel_path).stem
+        (SKILLS_DIR / f"{slug}.md").write_text(md_content, encoding="utf-8")
+        meta = load_skills_meta()
+        from datetime import datetime
+        meta[slug] = {
+            "name": slug.replace("-", " ").title(),
+            "description": f"Imported from GitHub: {user}/{repo}",
+            "icon": "🧠",
+            "category": "imported",
+            "source": f"github:{user}/{repo}",
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        save_skills_meta(meta)
+        return JSONResponse({"slug": slug, "source": f"github:{user}/{repo}", "message": "Skill imported"})
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to import: {e}"}, status_code=400)
+
+
+@api_router.post("/skills/import")
+async def import_skill(request: Request):
+    import re, requests as req
+    from datetime import datetime
+    body = {}
+    try:
+        json_body = await request.json()
+        body.update(json_body)
+    except Exception:
+        pass
+    try:
+        form_body = await request.form()
+        body.update(dict(form_body))
+    except Exception:
+        pass
+
+    source = body.get("source") or body.get("url") or body.get("repo") or ""
+    skill_name = body.get("skill") or body.get("name") or ""
+
+    if not source:
+        return JSONResponse({"error": "No source provided"}, status_code=400)
+
+    md_content = None
+    slug = None
+    meta_source = ""
+
+    # Case 1: skills.sh URL → GitHub
+    if re.search(r"(?:www\.)?skills\.sh", source):
+        # https://www.skills.sh/owner/repo/skill-name
+        parts = source.rstrip("/").split("/")
+        if len(parts) >= 3:
+            owner_repo = "/".join(parts[-3:-1])
+            skill_part = parts[-1]
+            gh_source = f"github:{owner_repo}"
+            if skill_part and skill_part != parts[-2]:
+                gh_source += f"/{skill_part}"
+                tree_url = f"https://api.github.com/repos/{owner_repo}/git/trees/main?recursive=1"
+                try:
+                    resp = req.get(tree_url, timeout=10)
+                    if resp.status_code == 200:
+                        tree = resp.json().get("tree", [])
+                        md_files = [it["path"] for it in tree if it["path"].endswith(".md") and it["type"] == "blob"]
+                        stem = skill_part.lower()
+                        matched = [f for f in md_files if stem in Path(f).stem.lower()]
+                        if not matched:
+                            matched = [f for f in md_files if f"/{stem}/" in f.lower()]
+                        if matched:
+                            rel_path = matched[0]
+                            slug = skill_part
+                            raw_url = f"https://raw.githubusercontent.com/{owner_repo}/main/{rel_path}"
+                            md_resp = req.get(raw_url, timeout=15)
+                            if md_resp.status_code == 200:
+                                md_content = md_resp.text
+                                meta_source = f"github:{owner_repo}/{slug}"
+                except Exception:
+                    pass
+            if not md_content:
+                # Fall back to general GitHub import
+                source = owner_repo
+                if skill_part and skill_part != parts[-2]:
+                    skill_name = skill_name or skill_part
+
+    # Case 2: Direct URL to .md file
+    if not md_content and re.match(r"https?://", source) and not re.search(r"github\.com", source):
+        try:
+            resp = req.get(source, timeout=15)
+            if resp.status_code != 200:
+                return JSONResponse({"error": f"Failed to fetch URL: {resp.status_code}"}, status_code=400)
+            md_content = resp.text
+            slug = skill_name or source.rstrip("/").split("/")[-1].replace(".md", "")
+            meta_source = f"url:{source}"
+        except Exception as e:
+            return JSONResponse({"error": f"URL fetch failed: {e}"}, status_code=400)
+
+    # Case 3: GitHub (full URL or owner/repo)
+    if not md_content and ("github.com" in source or re.match(r"^[\w.-]+/[\w.-]+", source)):
+        if not re.match(r"https?://", source):
+            source = f"https://github.com/{source}"
+        m = re.match(r"https://github\.com/([^/]+)/([^/]+)/?.*", source)
+        if not m:
+            return JSONResponse({"error": "Invalid GitHub source"}, status_code=400)
+        user, repo = m.group(1), m.group(2)
+        path_part = source.split("/blob/", 1)
+        if len(path_part) > 1:
+            file_path = path_part[1].split("/", 1)
+            branch = file_path[0] if len(file_path) > 0 else "main"
+            rel_path = file_path[1] if len(file_path) > 1 else ""
+        else:
+            branch = "main"
+            rel_path = ""
+        if not rel_path:
+            # Recursive search via Git Trees API
+            tree_url = f"https://api.github.com/repos/{user}/{repo}/git/trees/{branch}?recursive=1"
+            try:
+                resp = req.get(tree_url, timeout=15)
+                if resp.status_code == 200:
+                    tree = resp.json().get("tree", [])
+                    md_files = [it["path"] for it in tree if it["path"].endswith(".md") and it["type"] == "blob"]
+                    if not md_files:
+                        return JSONResponse({"error": "No .md files found in repo"}, status_code=404)
+                    if skill_name:
+                        stem_match = skill_name.lower()
+                        matched = [f for f in md_files if stem_match in Path(f).stem.lower()]
+                        if not matched:
+                            matched = [f for f in md_files if f"/{stem_match}/" in f.lower()]
+                        if matched:
+                            rel_path = matched[0]
+                        else:
+                            rel_path = md_files[0]
+                    else:
+                        rel_path = md_files[0]
+                else:
+                    return JSONResponse({"error": f"GitHub API error: {resp.status_code}"}, status_code=400)
+            except Exception as e:
+                return JSONResponse({"error": f"Failed to fetch repo: {e}"}, status_code=400)
+        raw_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{rel_path}"
+        try:
+            resp = req.get(raw_url, timeout=15)
+            if resp.status_code != 200:
+                return JSONResponse({"error": f"Failed to fetch file: {resp.status_code}"}, status_code=400)
+            md_content = resp.text
+            slug = skill_name or Path(rel_path).stem
+            meta_source = f"github:{user}/{repo}"
+        except Exception as e:
+            return JSONResponse({"error": f"GitHub fetch failed: {e}"}, status_code=400)
+
+    if not md_content:
+        return JSONResponse({"error": f"Unsupported source: {source}"}, status_code=400)
+
+    if not md_content or not slug:
+        return JSONResponse({"error": "Could not extract skill content"}, status_code=400)
+
+    (SKILLS_DIR / f"{slug}.md").write_text(md_content, encoding="utf-8")
+    meta = load_skills_meta()
+    meta[slug] = {
+        "name": slug.replace("-", " ").title(),
+        "description": f"Imported from {meta_source}" if meta_source else "Imported skill",
+        "icon": "🧠",
+        "category": "imported",
+        "source": meta_source,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    save_skills_meta(meta)
+    return JSONResponse({"slug": slug, "source": meta_source, "message": "Skill imported"})
+
+
+@api_router.delete("/skills/{slug}")
+async def delete_skill(slug: str):
+    if any(s["slug"] == slug for s in BUILTIN_SKILLS):
+        return JSONResponse({"error": "Cannot delete built-in skill"}, status_code=400)
+    file_path = SKILLS_DIR / f"{slug}.md"
+    if file_path.exists():
+        file_path.unlink()
+    meta = load_skills_meta()
+    meta.pop(slug, None)
+    save_skills_meta(meta)
+    return JSONResponse({"message": f"Skill '{slug}' deleted"})
+
+
+# ── Auth endpoints ─────────────────────────────────────────────────────────────────────
+
+def _no_supa():
+    return JSONResponse({"error": "Supabase not configured"}, status_code=503)
+
+
+@api_router.post("/auth/signup")
+async def auth_signup(request: Request):
+    if not supa: return _no_supa()
+    body = await request.json()
+    email, password = body.get("email"), body.get("password")
+    if not email or not password:
+        return JSONResponse({"error": "email and password required"}, status_code=400)
+    try:
+        res = supa.auth.sign_up({"email": email, "password": password})
+        return JSONResponse({"user": {"id": res.user.id, "email": res.user.email} if res.user else None, "session": {"access_token": res.session.access_token, "refresh_token": res.session.refresh_token} if res.session else None})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.post("/auth/login")
+async def auth_login(request: Request):
+    if not supa: return _no_supa()
+    body = await request.json()
+    email, password = body.get("email"), body.get("password")
+    if not email or not password:
+        return JSONResponse({"error": "email and password required"}, status_code=400)
+    try:
+        res = supa.auth.sign_in_with_password({"email": email, "password": password})
+        return JSONResponse({"user": {"id": res.user.id, "email": res.user.email}, "session": {"access_token": res.session.access_token, "refresh_token": res.session.refresh_token}})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.post("/auth/logout")
+async def auth_logout(request: Request):
+    if not supa: return _no_supa()
+    token = (request.headers.get("Authorization") or "").replace("Bearer ", "")
+    try:
+        supa.auth.sign_out()
+        return JSONResponse({"message": "Logged out"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.get("/auth/me")
+async def auth_me(request: Request):
+    if not supa: return _no_supa()
+    token = (request.headers.get("Authorization") or "").replace("Bearer ", "")
+    if not token:
+        return JSONResponse({"error": "No token"}, status_code=401)
+    try:
+        res = supa.auth.get_user(token)
+        return JSONResponse({"id": res.user.id, "email": res.user.email})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+
+# ── Helper: get user_id from Bearer token ──────────────────────────────────────────────
+def _get_user_id(request: Request) -> Optional[str]:
+    token = (request.headers.get("Authorization") or "").replace("Bearer ", "")
+    if not token or not supa: return None
+    try:
+        res = supa.auth.get_user(token)
+        return res.user.id if res.user else None
+    except Exception:
+        return None
+
+
+# ── Chat sessions ──────────────────────────────────────────────────────────────────────
+
+@api_router.get("/sessions")
+async def list_sessions(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    res = supa.table("sessions").select("*").eq("user_id", uid).order("updated_at", desc=True).execute()
+    return JSONResponse({"sessions": res.data})
+
+
+@api_router.post("/sessions")
+async def create_session(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    row = {"user_id": uid, "title": body.get("title", "New Chat"), "model_id": body.get("model_id", ""), "room": body.get("room", "")}
+    res = supa.table("sessions").insert(row).execute()
+    return JSONResponse({"session": res.data[0] if res.data else None})
+
+
+@api_router.get("/sessions/{session_id}/messages")
+async def get_messages(session_id: str, request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    # Verify session belongs to user
+    sess = supa.table("sessions").select("id").eq("id", session_id).eq("user_id", uid).execute()
+    if not sess.data: return JSONResponse({"error": "Session not found"}, status_code=404)
+    res = supa.table("messages").select("*").eq("session_id", session_id).order("created_at").execute()
+    return JSONResponse({"messages": res.data})
+
+
+@api_router.post("/sessions/{session_id}/messages")
+async def save_messages(session_id: str, request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    sess = supa.table("sessions").select("id").eq("id", session_id).eq("user_id", uid).execute()
+    if not sess.data: return JSONResponse({"error": "Session not found"}, status_code=404)
+    body = await request.json()
+    msgs = body.get("messages", [])
+    rows = [{"session_id": session_id, "role": m.get("role"), "text": m.get("text", ""), "model_id": m.get("model_id", ""), "search_mode": m.get("search_mode", ""), "skill_slug": m.get("skill_slug"), "effort_level": m.get("effort_level", ""), "image_url": m.get("image_url"), "metadata": m.get("metadata", {})} for m in msgs]
+    res = supa.table("messages").insert(rows).execute()
+    # Update session updated_at
+    supa.table("sessions").update({"updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", session_id).execute()
+    return JSONResponse({"saved": len(res.data)})
+
+
+@api_router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    supa.table("sessions").delete().eq("id", session_id).eq("user_id", uid).execute()
+    return JSONResponse({"message": "Session deleted"})
+
+
+@api_router.patch("/sessions/{session_id}")
+async def update_session(session_id: str, request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    patch = {k: v for k, v in body.items() if k in ("title", "model_id", "room")}
+    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    supa.table("sessions").update(patch).eq("id", session_id).eq("user_id", uid).execute()
+    return JSONResponse({"message": "Updated"})
+
+
+# ── Skill installs per user ─────────────────────────────────────────────────────────────
+
+@api_router.get("/user/skills")
+async def list_user_skills(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    res = supa.table("skill_installs").select("*").eq("user_id", uid).order("installed_at", desc=True).execute()
+    return JSONResponse({"skills": res.data})
+
+
+@api_router.post("/user/skills")
+async def install_user_skill(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    slug = body.get("slug")
+    if not slug: return JSONResponse({"error": "slug required"}, status_code=400)
+    row = {"user_id": uid, "skill_slug": slug, "source": body.get("source", "")}
+    try:
+        res = supa.table("skill_installs").upsert(row, on_conflict="user_id,skill_slug").execute()
+        return JSONResponse({"skill": res.data[0] if res.data else None})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.delete("/user/skills/{slug}")
+async def uninstall_user_skill(slug: str, request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    supa.table("skill_installs").delete().eq("user_id", uid).eq("skill_slug", slug).execute()
+    return JSONResponse({"message": f"Skill '{slug}' uninstalled"})
 
 
 def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> List[dict]:
@@ -2115,4 +2647,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
 

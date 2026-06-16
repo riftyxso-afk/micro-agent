@@ -20,7 +20,6 @@ const PROJECTS = [
     id: "research-hub",
     name: "Research Hub",
     description: "Market notes, source summaries, and comparison prompts.",
-    count: 18,
     chipId: "research",
     icon: Search,
     accent: "bg-[#EFF6FF] text-[#2563EB]",
@@ -29,7 +28,6 @@ const PROJECTS = [
     id: "content-studio",
     name: "Content Studio",
     description: "Threads, launch copy, docs, and brand drafts.",
-    count: 12,
     chipId: "create",
     icon: PenLine,
     accent: "bg-[#F5F3FF] text-[#7C3AED]",
@@ -38,7 +36,6 @@ const PROJECTS = [
     id: "code-lab",
     name: "Code Lab",
     description: "UI snippets, debugging notes, and component ideas.",
-    count: 9,
     chipId: "create",
     icon: Code2,
     accent: "bg-[#ECFDF5] text-[#059669]",
@@ -47,7 +44,6 @@ const PROJECTS = [
     id: "study-room",
     name: "Study Room",
     description: "Explainers, flashcards, and step-by-step problem solving.",
-    count: 7,
     chipId: "solve",
     icon: GraduationCap,
     accent: "bg-[#FFFBEB] text-[#D97706]",
@@ -111,7 +107,7 @@ export const ProjectsDialog = ({ open, onOpenChange }) => {
                     <Icon size={18} strokeWidth={1.75} />
                   </span>
                   <span className="rounded-full bg-[#F7F7F8] px-2 py-1 text-xs font-medium text-[#6B7280]">
-                    {project.count} chats
+                    {project.chipId}
                   </span>
                 </div>
                 <h3 className="mt-4 text-[16px] font-semibold tracking-[-0.01em] text-[#111111]">

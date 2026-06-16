@@ -289,8 +289,7 @@ export const CreditsSection = () => (
       viewport={{ once: true }}
       className="mx-auto mt-8 max-w-xl text-center text-[13px] leading-relaxed text-[#9CA3AF]"
     >
-      GPT 5.5 uses ⚡400 credits per message — save it for complex reasoning or
-      important tasks.
+      High-credit models like Claude Opus are best for complex reasoning — save them for when depth matters.
     </motion.p>
   </SectionShell>
 );
@@ -383,7 +382,7 @@ export const CompareSection = () => {
                 Combined answer
               </span>
               <span className="text-xs text-[#9CA3AF]">
-                DeepSeek v4 Pro + Gemini 3.1 Pro
+                DeepSeek v4 Pro + DeepSeek v4 Flash
               </span>
             </div>
             <p className="text-[14px] leading-relaxed text-[#374151]">
@@ -421,9 +420,9 @@ export const UploadSection = () => (
           <FileText size={24} strokeWidth={1.5} />
         </span>
         <p className="text-[15px] font-semibold text-[#111111]">
-          quarterly-report.pdf
+          your-document.pdf
         </p>
-        <p className="mt-1 text-[13px] text-[#9CA3AF]">2.4 MB · ready for Q&A</p>
+        <p className="mt-1 text-[13px] text-[#9CA3AF]">Upload any PDF or doc · ready for Q&A</p>
         <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[#ECFDF5] px-3 py-1 text-[12px] font-medium text-[#047857]">
           <CircleCheck size={13} strokeWidth={2} />
           Indexed
@@ -432,15 +431,14 @@ export const UploadSection = () => (
       {/* Q&A preview */}
       <div className="flex flex-col justify-center gap-3 rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
         <div className="self-end rounded-3xl rounded-br-lg bg-[#EDEEF1] px-4 py-2.5 text-[13.5px] text-[#111111]">
-          What drove the revenue change in Q3?
+          Summarize the key findings in this document.
         </div>
         <div className="rounded-3xl rounded-bl-lg border border-neutral-200 bg-white px-4 py-3 text-[13.5px] leading-relaxed text-[#374151] shadow-sm">
           <span className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-[#6B7280]">
             <ModelIcon model={MODELS.find((m) => m.id === "deepseek-v4-pro")} size={16} />
             DeepSeek v4 Pro · from your file
           </span>
-          Q3 revenue grew 18% — page 12 attributes it to enterprise renewals
-          and the new usage-based tier.
+          Based on your document, here are the key findings with direct references to the relevant sections.
         </div>
       </div>
     </motion.div>

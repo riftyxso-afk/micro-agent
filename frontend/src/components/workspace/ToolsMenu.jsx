@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Settings2, Globe, Brain, Telescope, Zap, Check, Power, Sparkles, GraduationCap, Users, ChevronRight, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Settings2, Globe, Brain, Telescope, Zap, Check, Power, Sparkles, GraduationCap, Users, ChevronRight, X, Plus } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 
 const SEARCH_MODES = [
@@ -270,6 +271,7 @@ const SkillPanelInline = ({ activeSkill, onSelect, onClear }) => {
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);
@@ -289,7 +291,17 @@ const SkillPanelInline = ({ activeSkill, onSelect, onClear }) => {
   return (
     <>
       <div className="border-b border-[#F3F4F6] px-3 py-2">
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Skills</p>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Skills</p>
+          <button
+            type="button"
+            onClick={() => navigate("/skills")}
+            className="ma-focus grid h-5 w-5 place-items-center rounded-md text-[#9CA3AF] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
+            aria-label="Manage skills"
+          >
+            <Plus size={13} strokeWidth={1.75} />
+          </button>
+        </div>
         <input
           autoFocus
           type="text"

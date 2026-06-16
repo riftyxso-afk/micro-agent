@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
+import { createSession, saveMessages, fetchSessions, deleteSession, isSupabaseEnabled } from "@/lib/supabase";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
@@ -54,12 +56,12 @@ export default function ChatInterface() {
   const [collapsed, setCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState("new");
   const [activeDialog, setActiveDialog] = useState(null);
-  const [credits, setCredits] = useState(4250);
+  const [credits, setCredits] = useState(null); // fetched from backend when available
   const [model, setModel] = useState(() =>
     getModelById(seed?.modelId || DEFAULT_MODEL_ID),
   );
   const [autoMode, setAutoMode] = useState(seed?.autoMode || false);
-  const [webSearch, setWebSearch] = useState(seed?.webSearch || false);
+  const [webSearch, setWebSearch] = useState(seed?.modeWebSearch || seed?.webSearch || false);
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [activeChip, setActiveChip] = useState(seed?.chipId || null);
   const [room, setRoom] = useState(
@@ -74,6 +76,11 @@ export default function ChatInterface() {
   const seededRef = useRef(false);
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
+
+  // Supabase session
+  const { user, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
+  const [sessionId, setSessionId] = useState(null);
+  const savedMsgCountRef = useRef(0);
 
   const updateMessage = useCallback((id, patch) => {
     setMessages((prev) =>
@@ -335,7 +342,14 @@ export default function ChatInterface() {
   }, [autoMode, model, messages, updateMessage]);
 
   const sendMessage = useCallback(
-    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low") => {
+    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false) => {
+      // Guest limit gate — seed prompts already counted in HomeWorkspace
+      const allowed = _isSeed ? checkGuestAllowed() : incrementGuestCount();
+      if (!allowed) {
+        navigate("/auth", { state: { from: "/chat", tab: "login" } });
+        toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
+        return;
+      }
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
         handleFileUploadAnalysis(text, uploadedFiles);
@@ -417,7 +431,7 @@ export default function ChatInterface() {
         effortLevel,
       });
     },
-    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis],
+    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const handleDeepResearch = useCallback(async (query) => {
@@ -594,7 +608,16 @@ export default function ChatInterface() {
       const t = setTimeout(() => {
         if (!seededRef.current) {
           seededRef.current = true;
-          sendMessage(seed.prompt);
+          sendMessage(
+            seed.prompt,
+            seed.attachments || [],
+            seed.searchModePrompt || "",
+            seed.searchModeId || "off",
+            seed.modeWebSearch || false,
+            seed.skillSlug || null,
+            seed.effortLevel || "low",
+            true, // _isSeed — already counted in HomeWorkspace
+          );
           window.history.replaceState({}, "");
         }
       }, 80);
@@ -608,6 +631,27 @@ export default function ChatInterface() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Auto-create Supabase session when first message sent
+  useEffect(() => {
+    if (!isSupabaseEnabled || !user || sessionId || messages.length === 0) return;
+    const firstUser = messages.find((m) => m.role === "user");
+    if (!firstUser) return;
+    createSession({ title: makeTitleTopic(firstUser.text), model_id: model.id, room })
+      .then((sess) => sess && setSessionId(sess.id))
+      .catch(() => {});
+  }, [messages, user, sessionId, model, room]);
+
+  // Auto-save completed messages to Supabase
+  useEffect(() => {
+    if (!isSupabaseEnabled || !user || !sessionId) return;
+    const completed = messages.filter((m) => m.state === "completed" || m.role === "user");
+    const unsaved = completed.slice(savedMsgCountRef.current);
+    if (!unsaved.length) return;
+    saveMessages(sessionId, unsaved)
+      .then(() => { savedMsgCountRef.current = completed.length; })
+      .catch(() => {});
+  }, [messages, sessionId, user]);
+
   const handleStop = () => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -617,7 +661,7 @@ export default function ChatInterface() {
         (m.state === "pending" || m.state === "thinking" || m.state === "streaming"),
     );
     if (generatingMsg) {
-      setCredits((c) => Math.max(0, c - (generatingMsg.model.credits || 0)));
+      setCredits((c) => c !== null ? Math.max(0, c - (generatingMsg.model.credits || 0)) : null);
     }
     setMessages((prev) =>
       prev.map((m) =>
@@ -837,6 +881,9 @@ export default function ChatInterface() {
               onWebSearchToggle={() => setWebSearch((value) => !value)}
               reasoningEnabled={reasoningEnabled}
               onReasoningToggle={handleReasoningToggle}
+              initialSearchMode={seed?.searchModeId || "off"}
+              initialSkill={seed?.skillSlug ? { slug: seed.skillSlug, name: seed.skillSlug, icon: "🧠" } : null}
+              initialEffortLevel={seed?.effortLevel || "low"}
             />
             <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
               MicroAgent can make mistakes. Always double-check important information.

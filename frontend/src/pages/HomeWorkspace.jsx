@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMenu } from "@/components/workspace/UserMenu";
@@ -32,6 +33,7 @@ export default function HomeWorkspace() {
   const [autoMode, setAutoMode] = useState(initialAutoMode);
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
+  const { user, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount } = useAuth();
 
   const handleNavChange = (navId) => {
     setActiveNav(navId);
@@ -69,13 +71,25 @@ export default function HomeWorkspace() {
     });
   };
 
-  const handleSend = (text) => {
+  const handleSend = (text, attachments = [], searchModePrompt = "", searchModeId = "off", modeWebSearch = false, skillSlug = null, effortLevel = "low") => {
+    const allowed = incrementGuestCount();
+    if (!allowed) {
+      navigate("/auth", { state: { from: "/home", tab: "login" } });
+      toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
+      return;
+    }
     navigate("/chat", {
       state: {
         prompt: text,
         modelId: model.id,
         autoMode,
         chipId: activeChip,
+        attachments,
+        searchModePrompt,
+        searchModeId,
+        modeWebSearch,
+        skillSlug,
+        effortLevel,
       },
     });
   };
@@ -102,8 +116,9 @@ export default function HomeWorkspace() {
     const picks = greetings[part];
     const greeting = picks[Math.floor(Math.random() * picks.length)];
 
-    return `${greeting}, Riftyxso`;
-  }, []);
+    const name = user?.email?.split("@")[0] || "";
+    return name ? `${greeting}, ${name}` : greeting;
+  }, [user?.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtitle = useMemo(() => {
     const h = new Date().getHours();
@@ -200,27 +215,18 @@ export default function HomeWorkspace() {
             />
           </motion.div>
 
-          {/* Free Plan badge — hidden on mobile to reduce clutter */}
-          <motion.div {...fadeUp(0.22)} className="mt-5 hidden justify-center sm:flex sm:mt-6">
-            <div
-              data-testid="plan-badge"
-              className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white/80 py-1.5 px-3 text-xs backdrop-blur-sm"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="font-medium text-[#374151]">Free Plan</span>
-              </span>
-              <span className="h-3 w-px bg-[#E5E7EB]" />
+          {!user && (
+            <motion.div {...fadeUp(0.22)} className="mt-5 hidden justify-center sm:flex sm:mt-6">
               <button
                 type="button"
-                data-testid="upgrade-plan-button"
-                onClick={() => navigate("/pricing")}
-                className="ma-focus font-medium text-[#6366F1] transition-colors duration-150 hover:text-[#4338CA]"
+                data-testid="signin-badge"
+                onClick={() => navigate("/auth")}
+                className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white/80 py-1.5 px-3 text-xs backdrop-blur-sm text-[#6366F1] font-medium transition-colors hover:text-[#4338CA]"
               >
-                Upgrade now
+                Sign in for full access
               </button>
-            </div>
-          </motion.div>
+            </motion.div>
+          )}
         </div>
       </main>
 

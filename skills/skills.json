@@ -1,0 +1,26 @@
+{
+  "README": {
+    "name": "Readme",
+    "description": "Imported from GitHub: anthropics/skills",
+    "icon": "🧠",
+    "category": "imported",
+    "source": "github:anthropics/skills",
+    "created_at": "2026-06-16T03:17:49.394503"
+  },
+  "SKILL": {
+    "name": "Skill",
+    "description": "Imported from GitHub: anthropics/skills",
+    "icon": "🧠",
+    "category": "imported",
+    "source": "github:anthropics/skills",
+    "created_at": "2026-06-16T03:18:52.178338"
+  },
+  "find-skills": {
+    "name": "Find Skills",
+    "description": "Imported from GitHub: vercel-labs/skills",
+    "icon": "🧠",
+    "category": "imported",
+    "source": "github:vercel-labs/skills",
+    "created_at": "2026-06-16T03:59:36.065861"
+  }
+}

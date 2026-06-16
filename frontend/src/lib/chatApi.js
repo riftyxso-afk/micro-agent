@@ -11,7 +11,7 @@
 // Support both local dev (relative proxy) and production (absolute URL from REACT_APP_API_URL)
 // Local dev: leave REACT_APP_API_URL empty, package.json proxy handles it
 // Production: set REACT_APP_API_URL to your deployed backend URL (e.g., https://api.yoursite.com)
-const API_BASE_URL = process.env.REACT_APP_API_URL || "";
+export const API_BASE_URL = process.env.REACT_APP_API_URL || "";
 const DEBUG_STREAM = true;
 
 const streamLog = (...args) => {

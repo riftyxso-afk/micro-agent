@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/lib/AuthContext";
 import {
   Paperclip,
   SlidersHorizontal,
@@ -172,21 +173,25 @@ export const PromptComposer = ({
   compact = false,
   initialValue = "",
   initialWebSearch = false,
+  initialSearchMode = "off",
+  initialSkill = null,
+  initialEffortLevel = "low",
   webSearchEnabled,
   onWebSearchToggle,
   reasoningEnabled,
   onReasoningToggle,
 }) => {
+  const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const [value, setValue] = useState(initialValue);
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [activeSkill, setActiveSkill] = useState(null); // { slug, name, icon }
+  const [activeSkill, setActiveSkill] = useState(initialSkill); // { slug, name, icon }
   const [improving, setImproving] = useState(false);
   const [slashVisible, setSlashVisible] = useState(false);
-  const [searchMode, setSearchMode] = useState("off");
+  const [searchMode, setSearchMode] = useState(initialSearchMode);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
-  const [effortLevel, setEffortLevel] = useState("low");
+  const [effortLevel, setEffortLevel] = useState(initialEffortLevel);
   const [drillView, setDrillView] = useState(null); // null = model list, 'effort' = effort + reasoning panel
   const [modeDropupOpen, setModeDropupOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -484,19 +489,44 @@ export const PromptComposer = ({
         </div>
       )}
 
-      {/* Opus teaser — desktop only */}
-      <div className="hidden items-center justify-between px-1 pb-2 sm:flex">
-        <p className="text-[13px] text-[#6B7280]">
-          Claude Opus-4.8 is coming
-        </p>
-        <Link
-          to="/introducing-opus"
-          data-testid="prompt-composer-learn-more"
-          className="text-[13px] font-medium text-[#111111] transition-colors hover:text-[#3B6EF6]"
-        >
-          Learn more
-        </Link>
-      </div>
+      {/* Opus teaser — home only, non-compact, logged in */}
+      {!compact && user && (
+        <div className="hidden items-center justify-between px-1 pb-2 sm:flex">
+          <p className="text-[13px] text-[#6B7280]">Claude Opus-4.8 is coming</p>
+          <Link to="/introducing-opus" data-testid="prompt-composer-learn-more"
+            className="text-[13px] font-medium text-[#111111] transition-colors hover:text-[#3B6EF6]">
+            Learn more
+          </Link>
+        </div>
+      )}
+
+      {/* Guest mode counter — always visible for guests */}
+      {!user && (
+        <div className={`mb-3 flex items-center justify-between rounded-2xl px-4 py-2.5 text-xs ${
+          isGuestLimitReached
+            ? "bg-[#FEF2F2] text-[#991B1B]"
+            : guestRemaining <= 3
+            ? "bg-[#FEF9C3] text-[#854D0E]"
+            : "bg-[#F3F4F6] text-[#374151]"
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
+              isGuestLimitReached ? "bg-[#EF4444] text-white" : guestRemaining <= 3 ? "bg-[#F59E0B] text-white" : "bg-[#6B7280] text-white"
+            }`}>
+              {isGuestLimitReached ? "0" : guestRemaining}
+            </span>
+            <span className="font-medium">
+              {isGuestLimitReached
+                ? "Guest limit reached"
+                : `Guest mode · ${guestRemaining} of ${GUEST_LIMIT} prompt${GUEST_LIMIT !== 1 ? "s" : ""} left`}
+            </span>
+          </div>
+          <Link to="/auth" state={{ from: window.location.pathname }}
+            className="ml-3 shrink-0 rounded-lg bg-[#111111] px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-[#374151]">
+            Sign in
+          </Link>
+        </div>
+      )}
 
       <div
         data-testid="prompt-composer"
