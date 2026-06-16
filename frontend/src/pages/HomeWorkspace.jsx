@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
+import { useSubscription } from "@/lib/useSubscription";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMenu } from "@/components/workspace/UserMenu";
@@ -34,6 +35,7 @@ export default function HomeWorkspace() {
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
   const { user, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount } = useAuth();
+  const { plan, isPro, isUltra } = useSubscription();
 
   const handleNavChange = (navId) => {
     setActiveNav(navId);
@@ -187,12 +189,14 @@ export default function HomeWorkspace() {
             <div className="mb-4 flex justify-center">
               {user ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-3 py-1 text-xs font-medium text-[#6B7280] shadow-[0_1px_2px_rgba(17,24,39,0.04)]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Free Plan
-                  <span className="mx-1 h-3 w-px bg-[#E5E7EB]" />
-                  <button onClick={() => navigate("/pricing")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
-                    Upgrade
-                  </button>
+                  <span className={`h-1.5 w-1.5 rounded-full ${isUltra ? "bg-purple-500" : isPro ? "bg-blue-500" : "bg-emerald-500"}`} />
+                  {isUltra ? "Ultra" : isPro ? "Pro" : "Free Plan"}
+                  {!isPro && <>
+                    <span className="mx-1 h-3 w-px bg-[#E5E7EB]" />
+                    <button onClick={() => navigate("/pricing")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
+                      Upgrade
+                    </button>
+                  </>}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-3 py-1 text-xs font-medium text-[#9CA3AF] shadow-[0_1px_2px_rgba(17,24,39,0.04)]">

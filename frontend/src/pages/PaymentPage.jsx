@@ -62,7 +62,7 @@ export default function PaymentPage() {
     return `MA-${planId.toUpperCase()}-${ts}-${rand}`;
   };
 
-  const handlePayNow = (e) => {
+  const handlePayNow = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.email.trim()) {
       toast.error("Isi nama dan email terlebih dahulu");
@@ -72,7 +72,19 @@ export default function PaymentPage() {
       toast.error("Payment gateway belum dikonfigurasi");
       return;
     }
+    setProcessing(true);
     const orderId = genOrderId();
+    // Create pending subscription in backend
+    try {
+      const token = user ? (await import("@/lib/supabase")).supabase?.auth.getSession().then(r => r.data?.session?.access_token) : null;
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/subscriptions/create-pending`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${await token}` } : {}) },
+        body: JSON.stringify({ order_id: orderId, plan: planId, amount: idrPrice, billing }),
+      });
+    } catch (e) {
+      console.warn("Could not create pending subscription:", e);
+    }
     const redirectUrl = `${window.location.origin}/payment/success?plan=${planId}&order_id=${orderId}`;
     const url = `https://app.pakasir.com/pay/${PAKASIR_SLUG}/${idrPrice}?order_id=${orderId}&redirect=${encodeURIComponent(redirectUrl)}`;
     window.location.href = url;

@@ -931,6 +931,176 @@ async def update_session(session_id: str, request: Request):
     return JSONResponse({"message": "Updated"})
 
 
+# ── Subscriptions & Pakasir webhook ──────────────────────────────────────────────────────
+
+PAKASIR_SLUG = env_str("PAKASIR_SLUG")
+PAKASIR_API_KEY = env_str("PAKASIR_API_KEY")
+
+PLAN_CREDITS = {
+    "free": 50,
+    "pro": 2000,
+    "ultra": 10000,
+}
+
+
+def _get_plan_from_order(order_id: str) -> str:
+    """Extract plan from order_id format MA-PRO-xxx or MA-ULTRA-xxx"""
+    import re
+    m = re.match(r"MA-([A-Z]+)-", order_id or "")
+    if m:
+        plan = m.group(1).lower()
+        if plan in ("pro", "ultra"):
+            return plan
+    return "pro"
+
+
+@api_router.get("/user/subscription")
+async def get_subscription(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        res = supa.table("subscriptions").select("*").eq("user_id", uid).order("created_at", desc=True).limit(1).execute()
+        if res.data:
+            return JSONResponse({"subscription": res.data[0]})
+        return JSONResponse({"subscription": {"plan": "free", "status": "active", "credits": PLAN_CREDITS["free"]}})
+    except Exception as e:
+        return JSONResponse({"subscription": {"plan": "free", "status": "active", "credits": PLAN_CREDITS["free"]}})
+
+
+@api_router.post("/webhooks/pakasir")
+async def pakasir_webhook(request: Request):
+    """Receive payment completion from Pakasir webhook"""
+    import hmac, hashlib
+    body = await request.json()
+    order_id = body.get("order_id", "")
+    amount = body.get("amount", 0)
+    status = body.get("status", "")
+    project = body.get("project", "")
+
+    # Verify project matches
+    if PAKASIR_SLUG and project != PAKASIR_SLUG:
+        return JSONResponse({"error": "Invalid project"}, status_code=400)
+
+    if status != "completed":
+        return JSONResponse({"message": f"Status {status} ignored"})
+
+    # Optionally verify with Pakasir API
+    if PAKASIR_API_KEY and PAKASIR_SLUG:
+        try:
+            import requests as req
+            verify = req.get(
+                f"https://app.pakasir.com/api/transactiondetail",
+                params={"project": PAKASIR_SLUG, "amount": amount, "order_id": order_id, "api_key": PAKASIR_API_KEY},
+                timeout=10
+            )
+            if verify.status_code == 200:
+                tx = verify.json().get("transaction", {})
+                if tx.get("status") != "completed" or str(tx.get("amount")) != str(amount):
+                    return JSONResponse({"error": "Payment verification failed"}, status_code=400)
+            else:
+                return JSONResponse({"error": f"Pakasir verify failed: {verify.status_code}"}, status_code=400)
+        except Exception as e:
+            logger.warning(f"Pakasir verify error: {e}")
+
+    plan = _get_plan_from_order(order_id)
+
+    # Find user by order_id from pending subscription
+    if supa:
+        try:
+            # Check pending order
+            pending = supa.table("subscriptions").select("user_id").eq("order_id", order_id).execute()
+            if pending.data:
+                uid = pending.data[0]["user_id"]
+                from datetime import datetime, timezone
+                supa.table("subscriptions").update({
+                    "status": "active",
+                    "plan": plan,
+                    "credits": PLAN_CREDITS.get(plan, 50),
+                    "activated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("order_id", order_id).execute()
+                logger.info(f"Subscription activated: user={uid} plan={plan} order={order_id}")
+            else:
+                logger.warning(f"No pending subscription for order {order_id}")
+        except Exception as e:
+            logger.error(f"Webhook DB error: {e}")
+
+    return JSONResponse({"message": "OK"})
+
+
+@api_router.post("/subscriptions/create-pending")
+async def create_pending_subscription(request: Request):
+    """Create a pending subscription record before redirecting to Pakasir"""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    order_id = body.get("order_id")
+    plan = body.get("plan", "pro")
+    amount = body.get("amount", 0)
+    billing = body.get("billing", "monthly")
+    if not order_id:
+        return JSONResponse({"error": "order_id required"}, status_code=400)
+    from datetime import datetime, timezone
+    row = {
+        "user_id": uid,
+        "order_id": order_id,
+        "plan": plan,
+        "billing": billing,
+        "amount_idr": amount,
+        "status": "pending",
+        "credits": PLAN_CREDITS.get(plan, 50),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        supa.table("subscriptions").insert(row).execute()
+        return JSONResponse({"message": "Pending subscription created", "order_id": order_id})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.get("/subscriptions/verify/{order_id}")
+async def verify_subscription(order_id: str, request: Request):
+    """Check payment status from Pakasir and update if completed"""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    # Check DB first
+    res = supa.table("subscriptions").select("*").eq("order_id", order_id).eq("user_id", uid).execute()
+    if not res.data:
+        return JSONResponse({"error": "Order not found"}, status_code=404)
+
+    sub = res.data[0]
+    if sub["status"] == "active":
+        return JSONResponse({"status": "active", "plan": sub["plan"]})
+
+    # Verify with Pakasir API
+    if PAKASIR_API_KEY and PAKASIR_SLUG:
+        try:
+            import requests as req
+            verify = req.get(
+                f"https://app.pakasir.com/api/transactiondetail",
+                params={"project": PAKASIR_SLUG, "amount": sub["amount_idr"], "order_id": order_id, "api_key": PAKASIR_API_KEY},
+                timeout=10
+            )
+            if verify.status_code == 200:
+                tx = verify.json().get("transaction", {})
+                if tx.get("status") == "completed":
+                    plan = sub["plan"]
+                    from datetime import datetime, timezone
+                    supa.table("subscriptions").update({
+                        "status": "active",
+                        "activated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("order_id", order_id).execute()
+                    return JSONResponse({"status": "active", "plan": plan})
+                return JSONResponse({"status": tx.get("status", "pending"), "plan": sub["plan"]})
+        except Exception as e:
+            logger.warning(f"Pakasir verify error: {e}")
+
+    return JSONResponse({"status": sub["status"], "plan": sub["plan"]})
+
+
 # ── Skill installs per user ─────────────────────────────────────────────────────────────
 
 @api_router.get("/user/skills")
