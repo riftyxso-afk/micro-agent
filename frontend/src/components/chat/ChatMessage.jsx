@@ -187,7 +187,7 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
         ) : (
           <>
             {/* Skill loading indicator */}
-            {message.skillSlug && message.skillPhase === "loading" && (
+            {message.skillSlug && message.skillPhase === "loading" && (message.state === "pending" || message.state === "thinking") && (
               <div className="ma-fade-in mb-3 flex items-center gap-3 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] px-4 py-2.5">
                 <div className="ma-grid-loader" style={{ width: 14, height: 14, color: "#4338CA" }}>
                   {[0,1,2,3,4,5,6,7,8].map(i => <span key={i} />)}
