@@ -957,25 +957,10 @@ export default function ChatInterface() {
 
         <footer className="shrink-0 pt-3 sm:pb-4 md:pb-4" style={{paddingBottom: 'max(32px, env(safe-area-inset-bottom))'}}>        
           <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6" data-testid="chat-composer">
-            {/* File preview bar — pending files */}
-            {uploadedFiles.length > 0 && (
-              <div className="ma-fade-in mb-2 flex flex-wrap gap-2 rounded-2xl border border-[#E5E7EB] bg-white px-3 py-2">
-                {uploadedFiles.map((file, idx) => (
-                  <span key={idx} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F7F8] py-1 pl-2 pr-1.5 text-xs text-[#374151]">
-                    <span>{getFileIcon(file.name)}</span>
-                    <span className="max-w-[120px] truncate">{file.name}</span>
-                    <button type="button"
-                      onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                      className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-[#9CA3AF] hover:bg-[#E5E7EB] hover:text-[#374151]">
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+
             <PromptComposer
               compact
-              placeholder={uploadedFiles.length > 0 ? "Tanya atau instruksikan tentang file ini..." : "Ask anything"}
+              placeholder="Ask anything"
               onSend={sendMessage}
               onDeepResearch={handleDeepResearch}
               onFileSelect={(files) => {
