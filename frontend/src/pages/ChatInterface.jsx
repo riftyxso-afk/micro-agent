@@ -973,6 +973,7 @@ export default function ChatInterface() {
                 }
                 setUploadedFiles((prev) => [...prev, ...files].slice(0, 5));
               }}
+              onFileRemove={(idx) => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
               uploadedFilesCount={uploadedFiles.length}
               isGenerating={isGenerating}
               onStop={handleStop}

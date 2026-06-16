@@ -163,6 +163,7 @@ export const PromptComposer = ({
   onSend,
   onDeepResearch,
   onFileSelect,
+  onFileRemove,
   uploadedFilesCount = 0,
   isGenerating = false,
   onStop,
@@ -238,7 +239,7 @@ export const PromptComposer = ({
     }
   };
 
-  const hasContent = value.trim().length > 0 || attachments.length > 0;
+  const hasContent = value.trim().length > 0 || attachments.length > 0 || fileObjects.length > 0;
 
   useEffect(() => {
     setValue(initialValue);
@@ -279,7 +280,7 @@ export const PromptComposer = ({
     const files = Array.from(e.target.files || []);
     if (files.length) {
       if (onFileSelect) {
-        // Pro mode: generate local preview URLs + pass File objects to parent
+        // Pro mode: generate local preview URLs for display; parent stores raw files
         const withPreviews = files.map((f) => ({
           file: f,
           name: f.name,
@@ -288,6 +289,7 @@ export const PromptComposer = ({
           preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
         }));
         setFileObjects((prev) => [...prev, ...withPreviews].slice(0, 5));
+        // Also pass raw File objects to parent (ChatInterface stores in uploadedFiles)
         onFileSelect(files);
       } else {
         setAttachments((prev) => [...prev, ...files.map((f) => f.name)]);
@@ -302,16 +304,17 @@ export const PromptComposer = ({
 
   const removeFileObject = (idx) => {
     setFileObjects((prev) => {
-      const next = prev.filter((_, i) => i !== idx);
-      // revoke object URL to avoid memory leak
       if (prev[idx]?.preview) URL.revokeObjectURL(prev[idx].preview);
-      return next;
+      return prev.filter((_, i) => i !== idx);
     });
+    // Notify parent to remove file at same index
+    if (onFileRemove) onFileRemove(idx);
   };
 
   const handleSend = () => {
     if (!hasContent || isGenerating) return;
-    const text = value.trim() || `Analyse ${attachments.join(", ")}`;
+    const fileNames = fileObjects.map(f => f.name);
+    const text = value.trim() || (fileNames.length ? `Tolong analisis file: ${fileNames.join(", ")}` : `Analyse ${attachments.join(", ")}`);
 
     // Deep Research mode — route to research handler
     if (deepResearchMode && onDeepResearch) {
