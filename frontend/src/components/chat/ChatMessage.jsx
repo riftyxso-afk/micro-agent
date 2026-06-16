@@ -9,10 +9,29 @@ import { DocumentDownloadMenu } from "@/components/chat/DocumentDownloadMenu";
 import { SearchPipeline } from "@/components/chat/SearchPipeline";
 import { QnaCard } from "@/components/chat/QnaCard";
 
+const FILE_ICONS = { pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", docx: "📝", doc: "📝", xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃" };
+const fileIcon = (name) => FILE_ICONS[(name || "").split(".").pop().toLowerCase()] || "📎";
+
 export const UserMessage = ({ message }) => (
   <div className="ma-msg-in flex justify-end" data-testid="user-message">
-    <div className="max-w-[80%] rounded-2xl rounded-br-md bg-[#EDEEF1] px-4 py-2.5 text-[14px] leading-relaxed text-[#111111] sm:max-w-[70%] sm:px-5 sm:py-3 sm:text-[15px]">
-      {message.text}
+    <div className="max-w-[80%] sm:max-w-[70%] space-y-2">
+      {/* Attached files shown above bubble */}
+      {message.uploadedFiles?.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {message.uploadedFiles.map((f, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-xs font-medium text-[#374151] shadow-sm">
+              <span>{fileIcon(f.name)}</span>
+              <span className="max-w-[160px] truncate">{f.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* Text bubble */}
+      {message.text && (
+        <div className="rounded-2xl rounded-br-md bg-[#EDEEF1] px-4 py-2.5 text-[14px] leading-relaxed text-[#111111] sm:px-5 sm:py-3 sm:text-[15px]">
+          {message.text}
+        </div>
+      )}
     </div>
   </div>
 );

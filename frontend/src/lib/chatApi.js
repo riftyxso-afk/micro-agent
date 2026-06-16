@@ -108,8 +108,13 @@ export async function* streamDeepResearch(query) {
  */
 export async function uploadAndAnalyze({ files, prompt, chatHistory = [] }) {
   const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-  formData.append("prompt", prompt || "Tolong analisis file yang saya upload.");
+  // Accept both raw File objects and pre-built FormData entries
+  const fileArray = Array.isArray(files) ? files : [];
+  if (!fileArray.length) throw new Error("No files to analyze");
+  fileArray.forEach((file) => formData.append("files", file));
+  const cleanPrompt = (prompt || "").replace(/^Tolong analisis file:[^\n]*/i, "").trim()
+    || "Tolong analisis file yang saya upload. Berikan ringkasan lengkap isi dokumen.";
+  formData.append("prompt", cleanPrompt);
   formData.append("chat_history", JSON.stringify(
     chatHistory.slice(-6).map((m) => ({ role: m.role, content: m.text || m.content || "" }))
   ));

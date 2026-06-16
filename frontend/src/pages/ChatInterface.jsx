@@ -370,7 +370,10 @@ export default function ChatInterface() {
     }
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
     const fileMeta = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
-    const userMsg = { id: nextId(), role: "user", text, uploadedFiles: fileMeta };
+    // Build user-facing prompt (strip auto-generated prefix, keep user text)
+    const userText = text.replace(/^Tolong analisis file:[^\n]*/i, "").trim()
+      || `Analisis ${fileMeta.map(f => f.name).join(", ")}`;
+    const userMsg = { id: nextId(), role: "user", text: userText, uploadedFiles: fileMeta };
     const assistantMsgId = nextId();
     const assistantMsg = {
       id: assistantMsgId, role: "assistant", state: "pending",
