@@ -111,7 +111,26 @@ export async function saveMessages(sessionId, messages) {
   await supabase.from("sessions").update({ updated_at: new Date().toISOString() }).eq("id", sessionId);
 }
 
-// ── Skill installs ────────────────────────────────────────────────────────────
+// ── File storage ────────────────────────────────────────────────────────────
+
+export async function uploadFileToStorage(file, userId) {
+  if (!supabase) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop();
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { data, error } = await supabase.storage
+    .from("chat-files")
+    .upload(path, file, { cacheControl: "3600", upsert: false });
+  if (error) throw error;
+  const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
+  return { path, url: urlData.publicUrl, name: file.name, type: file.type, size: file.size };
+}
+
+export async function deleteFileFromStorage(path) {
+  if (!supabase) return;
+  await supabase.storage.from("chat-files").remove([path]);
+}
+
+// ── Skill installs ──────────────────────────────────────────────────────────────
 
 export async function fetchUserSkills() {
   if (!supabase) return [];

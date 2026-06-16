@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
-import { createSession, saveMessages, fetchSessions, deleteSession, isSupabaseEnabled } from "@/lib/supabase";
+import { createSession, saveMessages, fetchSessions, deleteSession, isSupabaseEnabled, uploadFileToStorage } from "@/lib/supabase";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
@@ -70,7 +70,8 @@ export default function ChatInterface() {
   );
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState([]); // File objects pending send
+  const [sessionFiles, setSessionFiles] = useState([]); // { name, url, type, size } uploaded to storage
   const [isDragging, setIsDragging] = useState(false);
   const deepResearchAbortRef = useRef(null);
 
@@ -368,7 +369,8 @@ export default function ChatInterface() {
       return;
     }
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
-    const userMsg = { id: nextId(), role: "user", text, uploadedFiles: files.map(f => ({ name: f.name, type: f.type, size: f.size })) };
+    const fileMeta = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
+    const userMsg = { id: nextId(), role: "user", text, uploadedFiles: fileMeta };
     const assistantMsgId = nextId();
     const assistantMsg = {
       id: assistantMsgId, role: "assistant", state: "pending",
@@ -376,9 +378,21 @@ export default function ChatInterface() {
     };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setIsGenerating(true);
+
+    // Upload files to Supabase Storage in background
+    if (user && isSupabaseEnabled) {
+      Promise.all(files.map(f => uploadFileToStorage(f, user.id).catch(() => null)))
+        .then((results) => {
+          const uploaded = results.filter(Boolean);
+          if (uploaded.length) {
+            setSessionFiles((prev) => [...prev, ...uploaded]);
+          }
+        });
+    }
+
     try {
       const data = await uploadAndAnalyze({ files, prompt: text, chatHistory: messages });
-      updateMessage(assistantMsgId, { state: "completed", status: "just now", text: data.response || "" });
+      updateMessage(assistantMsgId, { state: "completed", status: "just now", text: data.response || "", uploadedFiles: fileMeta });
     } catch (err) {
       updateMessage(assistantMsgId, { state: "error", status: "failed", error: err.message });
       toast("Analisis gagal", { description: err.message });
@@ -386,7 +400,7 @@ export default function ChatInterface() {
       setIsGenerating(false);
       setUploadedFiles([]);
     }
-  }, [autoMode, model, messages, updateMessage, isPro, navigate]);
+  }, [autoMode, model, messages, updateMessage, isPro, navigate, user]);
 
   const sendMessage = useCallback(
     (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false) => {
@@ -823,6 +837,12 @@ export default function ChatInterface() {
     setActiveDialog(id);
   };
 
+  const getFileIcon = (name) => {
+    const ext = (name || "").split(".").pop().toLowerCase();
+    const icons = { pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", docx: "📝", xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃" };
+    return icons[ext] || "📎";
+  };
+
   return (
     <div className="ma-page relative flex h-dvh flex-col">
       <Sidebar
@@ -833,9 +853,37 @@ export default function ChatInterface() {
         onLogoClick={() => navigate("/home")}
       />
 
+      {/* Files panel — left sidebar, shown when sessionFiles exist */}
+      {sessionFiles.length > 0 && (
+        <div className={`fixed bottom-0 top-0 z-20 hidden w-[220px] flex-col border-r border-[#E5E7EB] bg-white shadow-[1px_0_0_rgba(17,24,39,0.04)] transition-all duration-300 lg:flex ${
+          collapsed ? "left-[68px]" : "left-[86px]"
+        }`}>
+          <div className="flex items-center justify-between border-b border-[#F0F1F3] px-3 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Files ({sessionFiles.length})</p>
+            <button onClick={() => setSessionFiles([])} className="grid h-5 w-5 place-items-center rounded text-[#9CA3AF] hover:bg-[#F3F4F6] hover:text-[#374151]">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {sessionFiles.map((f, i) => (
+              <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-left hover:bg-[#F7F7F8] transition-colors group">
+                <span className="text-base shrink-0">{getFileIcon(f.name)}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px] font-medium text-[#111111]">{f.name}</p>
+                  <p className="text-[10px] text-[#9CA3AF]">{f.type?.split("/")[1]?.toUpperCase() || "FILE"}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div
         className={`flex h-full min-h-0 flex-col transition-[margin] duration-300 ease-out ${
           collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
+        } ${
+          sessionFiles.length > 0 ? "lg:ml-[calc(86px+220px)]" : ""
         }`}
       >
         <main
@@ -909,27 +957,20 @@ export default function ChatInterface() {
 
         <footer className="shrink-0 pt-3 sm:pb-4 md:pb-4" style={{paddingBottom: 'max(32px, env(safe-area-inset-bottom))'}}>        
           <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6" data-testid="chat-composer">
-            {/* File preview bar */}
+            {/* File preview bar — pending files */}
             {uploadedFiles.length > 0 && (
               <div className="ma-fade-in mb-2 flex flex-wrap gap-2 rounded-2xl border border-[#E5E7EB] bg-white px-3 py-2">
-                {uploadedFiles.map((file, idx) => {
-                  const ext = file.name.split(".").pop().toLowerCase();
-                  const icons = { pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", docx: "📝", xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃" };
-                  const icon = icons[ext] || "📎";
-                  return (
-                    <span key={idx} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F7F8] py-1 pl-2 pr-1.5 text-xs text-[#374151]">
-                      <span>{icon}</span>
-                      <span className="max-w-[120px] truncate">{file.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                        className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-[#9CA3AF] hover:bg-[#E5E7EB] hover:text-[#374151]"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  );
-                })}
+                {uploadedFiles.map((file, idx) => (
+                  <span key={idx} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F7F7F8] py-1 pl-2 pr-1.5 text-xs text-[#374151]">
+                    <span>{getFileIcon(file.name)}</span>
+                    <span className="max-w-[120px] truncate">{file.name}</span>
+                    <button type="button"
+                      onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-[#9CA3AF] hover:bg-[#E5E7EB] hover:text-[#374151]">
+                      ×
+                    </button>
+                  </span>
+                ))}
               </div>
             )}
             <PromptComposer
