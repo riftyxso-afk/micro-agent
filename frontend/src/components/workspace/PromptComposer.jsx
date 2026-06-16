@@ -184,7 +184,9 @@ export const PromptComposer = ({
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const [value, setValue] = useState(initialValue);
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState([]); // filenames (non-pro) or { file, preview } objects (pro)
+  const [fileObjects, setFileObjects] = useState([]); // raw File objects + preview URL for pro mode
+  const [previewFile, setPreviewFile] = useState(null); // { name, url, type } for preview modal
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeSkill, setActiveSkill] = useState(initialSkill); // { slug, name, icon }
   const [improving, setImproving] = useState(false);
@@ -277,7 +279,15 @@ export const PromptComposer = ({
     const files = Array.from(e.target.files || []);
     if (files.length) {
       if (onFileSelect) {
-        // Route real File objects to parent for analysis
+        // Pro mode: generate local preview URLs + pass File objects to parent
+        const withPreviews = files.map((f) => ({
+          file: f,
+          name: f.name,
+          type: f.type,
+          size: f.size,
+          preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
+        }));
+        setFileObjects((prev) => [...prev, ...withPreviews].slice(0, 5));
         onFileSelect(files);
       } else {
         setAttachments((prev) => [...prev, ...files.map((f) => f.name)]);
@@ -288,6 +298,15 @@ export const PromptComposer = ({
 
   const removeAttachment = (idx) => {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeFileObject = (idx) => {
+    setFileObjects((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      // revoke object URL to avoid memory leak
+      if (prev[idx]?.preview) URL.revokeObjectURL(prev[idx].preview);
+      return next;
+    });
   };
 
   const handleSend = () => {
@@ -534,26 +553,90 @@ export const PromptComposer = ({
           compact ? "p-3 sm:p-3.5 sm:p-4" : "p-3.5 sm:p-4 sm:p-5"
         }`}
       >
+      {/* Pro mode: file objects with preview */}
+      {fileObjects.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2" data-testid="attachment-list">
+          {fileObjects.map((f, idx) => (
+            <div key={`${f.name}-${idx}`}
+              className="ma-fade-in group relative flex items-center gap-1.5 overflow-hidden rounded-xl border border-[#E5E7EB] bg-[#F7F7F8]"
+              style={{ height: 52 }}
+            >
+              {/* Preview or icon */}
+              <button type="button" onClick={() => setPreviewFile(f)}
+                className="flex h-full items-center">
+                {f.preview ? (
+                  <img src={f.preview} alt={f.name} className="h-full w-[52px] object-cover rounded-l-xl" />
+                ) : (
+                  <div className="flex h-full w-[52px] items-center justify-center rounded-l-xl bg-[#EEF2FF]">
+                    <FileText size={18} strokeWidth={1.5} className="text-[#6366F1]" />
+                  </div>
+                )}
+              </button>
+              {/* Name */}
+              <button type="button" onClick={() => setPreviewFile(f)}
+                className="flex max-w-[120px] flex-col items-start pr-6 text-left">
+                <span className="truncate text-[11px] font-medium text-[#111111] w-full">{f.name}</span>
+                <span className="text-[10px] text-[#9CA3AF]">{f.type?.split("/")[1]?.toUpperCase() || "FILE"}</span>
+              </button>
+              {/* Remove */}
+              <button type="button" onClick={() => removeFileObject(idx)}
+                className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-[#111111]/60 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                <X size={8} strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Non-pro: filename-only attachments */}
       {attachments.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2" data-testid="attachment-list">
           {attachments.map((name, idx) => (
-            <span
-              key={`${name}-${idx}`}
+            <span key={`${name}-${idx}`}
               className="ma-fade-in inline-flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-[#F7F7F8] py-1 pl-2.5 pr-1.5 text-xs text-[#374151]"
             >
               <FileText size={13} strokeWidth={1.75} className="text-[#6B7280]" />
               <span className="max-w-[160px] truncate">{name}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${name}`}
-                data-testid={`attachment-remove-${idx}`}
+              <button type="button" aria-label={`Remove ${name}`} data-testid={`attachment-remove-${idx}`}
                 onClick={() => removeAttachment(idx)}
-                className="ma-focus grid place-items-center rounded-full p-0.5 text-[#9CA3AF] transition-colors hover:bg-[#E5E7EB] hover:text-[#111111]"
-              >
+                className="ma-focus grid place-items-center rounded-full p-0.5 text-[#9CA3AF] transition-colors hover:bg-[#E5E7EB] hover:text-[#111111]">
                 <X size={12} strokeWidth={2} />
               </button>
             </span>
           ))}
+        </div>
+      )}
+
+      {/* File preview modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setPreviewFile(null)}>
+          <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[#F0F1F3] px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[#111111]">{previewFile.name}</p>
+                <p className="text-xs text-[#9CA3AF]">{previewFile.type || "Unknown type"}</p>
+              </div>
+              <button onClick={() => setPreviewFile(null)}
+                className="ml-3 grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#6B7280] hover:bg-[#F3F4F6]">
+                <X size={16} strokeWidth={1.75} />
+              </button>
+            </div>
+            <div className="flex items-center justify-center bg-[#F7F7F8] p-4" style={{ minHeight: 300 }}>
+              {previewFile.preview ? (
+                <img src={previewFile.preview} alt={previewFile.name}
+                  className="max-h-[60vh] max-w-full rounded-xl object-contain shadow" />
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-8">
+                  <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[#EEF2FF]">
+                    <FileText size={28} strokeWidth={1.5} className="text-[#6366F1]" />
+                  </div>
+                  <p className="text-sm font-medium text-[#374151]">{previewFile.name}</p>
+                  <p className="text-xs text-[#9CA3AF]">Preview tidak tersedia untuk file ini.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
