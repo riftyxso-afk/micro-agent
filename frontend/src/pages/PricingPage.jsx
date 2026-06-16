@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useCurrency } from "@/hooks/useCurrency";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
@@ -142,6 +143,7 @@ export default function PricingPage() {
   const [activeDialog, setActiveDialog] = useState(null);
   const [billing, setBilling] = useState("monthly");
   const [openFaq, setOpenFaq] = useState(null);
+  const { format, currency, loading: currencyLoading } = useCurrency();
 
   const handleNavChange = (navId) => {
     if (navId === "new") navigate("/home");
@@ -149,16 +151,18 @@ export default function PricingPage() {
     else navigate("/home");
   };
 
-  const getPrice = (plan) => {
-    const base = parseFloat(plan.price);
-    if (billing === "yearly") return Math.round(base * 12 * (1 - YEARLY_DISCOUNT));
-    return base;
-  };
+  const IDR_PRICES = { free: 0, pro: { monthly: 50000, yearly: 480000 }, ultra: { monthly: 300000, yearly: 2880000 } };
+  const formatIDR = (n) => n === 0 ? "Gratis" : `Rp ${n.toLocaleString("id-ID")}`;
 
   const getDisplayPrice = (plan) => {
-    if (parseFloat(plan.price) === 0) return "0";
-    const p = getPrice(plan);
-    return billing === "yearly" ? `${p} / yr` : `${p}`;
+    if (plan.id === "free") return "Gratis";
+    const idr = billing === "yearly" ? IDR_PRICES[plan.id]?.yearly : IDR_PRICES[plan.id]?.monthly;
+    return formatIDR(idr || 0);
+  };
+
+  const getPeriodLabel = (plan) => {
+    if (plan.id === "free") return "selamanya";
+    return billing === "yearly" ? "/ tahun" : "/ bulan";
   };
 
   const fadeUp = (delay = 0) =>
@@ -286,11 +290,9 @@ export default function PricingPage() {
 
                   <div className="mt-4 flex items-baseline gap-1">
                     <span className="font-heading text-3xl font-semibold tracking-tight text-[#111111]">
-                      ${getDisplayPrice(plan)}
+                      {getDisplayPrice(plan)}
                     </span>
-                    {parseFloat(plan.price) > 0 && (
-                      <span className="text-xs text-[#9CA3AF]">{plan.period}</span>
-                    )}
+                    <span className="text-xs text-[#9CA3AF]">{getPeriodLabel(plan)}</span>
                   </div>
 
                   <div className="mt-1.5 inline-flex items-center gap-1 text-xs text-[#6B7280]">
@@ -303,11 +305,7 @@ export default function PricingPage() {
                     disabled={plan.disabled}
                     onClick={() => {
                       if (!plan.disabled) {
-                        toast(`Plan: ${plan.name}`, {
-                          description: plan.id === "free"
-                            ? "You're already on this plan."
-                            : "Redirecting to checkout...",
-                        });
+                        navigate(`/payment?plan=${plan.id}&billing=${billing}`);
                       }
                     }}
                     className={`ma-focus mt-5 h-10 w-full text-sm font-medium transition-all duration-150 active:scale-[0.98] ${plan.ctaStyle}`}

@@ -183,6 +183,28 @@ export default function HomeWorkspace() {
       >
         <div className="w-full max-w-[680px] -translate-y-[2vh]">
           <motion.div {...fadeUp(0)} className="text-center">
+            {/* Plan badge */}
+            <div className="mb-4 flex justify-center">
+              {user ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-3 py-1 text-xs font-medium text-[#6B7280] shadow-[0_1px_2px_rgba(17,24,39,0.04)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Free Plan
+                  <span className="mx-1 h-3 w-px bg-[#E5E7EB]" />
+                  <button onClick={() => navigate("/pricing")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
+                    Upgrade
+                  </button>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-3 py-1 text-xs font-medium text-[#9CA3AF] shadow-[0_1px_2px_rgba(17,24,39,0.04)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
+                  Guest
+                  <span className="mx-1 h-3 w-px bg-[#E5E7EB]" />
+                  <button onClick={() => navigate("/auth")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
+                    Sign in
+                  </button>
+                </span>
+              )}
+            </div>
             <h1
               data-testid="greeting-heading"
               className="font-heading text-2xl font-semibold tracking-tight text-[#111111] sm:text-4xl lg:text-5xl"
