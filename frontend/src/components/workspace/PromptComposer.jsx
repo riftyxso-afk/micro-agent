@@ -318,6 +318,7 @@ export const PromptComposer = ({
       onDeepResearch(text);
       setValue("");
       setAttachments([]);
+      setFileObjects((prev) => { prev.forEach(f => f.preview && URL.revokeObjectURL(f.preview)); return []; });
       setSlashVisible(false);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -330,6 +331,8 @@ export const PromptComposer = ({
     onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false, activeSkill?.slug || null, effortLevel);
     setValue("");
     setAttachments([]);
+    // Clear file objects and revoke preview URLs
+    setFileObjects((prev) => { prev.forEach(f => f.preview && URL.revokeObjectURL(f.preview)); return []; });
     setSlashVisible(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
