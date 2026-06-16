@@ -19,6 +19,7 @@ import {
   IMAGE_MODEL,
 } from "@/lib/workspaceData";
 import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze } from "@/lib/chatApi";
+import { useSubscription } from "@/lib/useSubscription";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
 import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
@@ -56,7 +57,7 @@ export default function ChatInterface() {
   const [collapsed, setCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState("new");
   const [activeDialog, setActiveDialog] = useState(null);
-  const [credits, setCredits] = useState(null); // fetched from backend when available
+  const [credits, setCredits] = useState(null);
   const [model, setModel] = useState(() =>
     getModelById(seed?.modelId || DEFAULT_MODEL_ID),
   );
@@ -79,8 +80,16 @@ export default function ChatInterface() {
 
   // Supabase session
   const { user, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
+  const { plan, isPro, isUltra, features, subscription } = useSubscription();
   const [sessionId, setSessionId] = useState(null);
   const savedMsgCountRef = useRef(0);
+
+  // Sync credits from subscription
+  useEffect(() => {
+    if (subscription?.credits != null) {
+      setCredits(subscription.credits);
+    }
+  }, [subscription?.credits]);
 
   const updateMessage = useCallback((id, patch) => {
     setMessages((prev) =>
@@ -320,6 +329,15 @@ export default function ChatInterface() {
   );
 
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
+    // File analysis requires Pro
+    if (!isPro) {
+      toast("File analysis membutuhkan Pro", {
+        description: "Upgrade ke Pro untuk menganalisis file.",
+        action: { label: "Upgrade", onClick: () => navigate("/pricing") },
+      });
+      setUploadedFiles([]);
+      return;
+    }
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
     const userMsg = { id: nextId(), role: "user", text, uploadedFiles: files.map(f => ({ name: f.name, type: f.type, size: f.size })) };
     const assistantMsgId = nextId();
@@ -339,7 +357,7 @@ export default function ChatInterface() {
       setIsGenerating(false);
       setUploadedFiles([]);
     }
-  }, [autoMode, model, messages, updateMessage]);
+  }, [autoMode, model, messages, updateMessage, isPro, navigate]);
 
   const sendMessage = useCallback(
     (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false) => {
@@ -708,14 +726,33 @@ export default function ChatInterface() {
 
   const handleModelSelect = (m, isAuto) => {
     if (isAuto) {
+      if (!isPro) {
+        toast("Auto Mode requires Pro", { description: "Upgrade to Pro to use Auto Mode." });
+        return;
+      }
       setAutoMode(true);
     } else {
       setAutoMode(false);
+      // Block expensive models for free users
+      if (!isPro && m.isExpensive) {
+        toast("Model ini membutuhkan plan Pro atau Ultra", {
+          description: `${m.name} hanya tersedia di Pro/Ultra. Upgrade sekarang.`,
+          action: { label: "Upgrade", onClick: () => navigate("/pricing") },
+        });
+        return;
+      }
       setModel(m);
     }
   };
 
   const handleAutoModeToggle = () => {
+    if (!isPro && !autoMode) {
+      toast("Auto Mode requires Pro", {
+        description: "Upgrade ke Pro untuk menggunakan Auto Mode.",
+        action: { label: "Upgrade", onClick: () => navigate("/pricing") },
+      });
+      return;
+    }
     const next = !autoMode;
     setAutoMode(next);
     toast(next ? "Auto Mode on" : "Auto Mode off", {
@@ -869,7 +906,16 @@ export default function ChatInterface() {
               placeholder={uploadedFiles.length > 0 ? "Tanya atau instruksikan tentang file ini..." : "Ask anything"}
               onSend={sendMessage}
               onDeepResearch={handleDeepResearch}
-              onFileSelect={(files) => setUploadedFiles((prev) => [...prev, ...files].slice(0, 5))}
+              onFileSelect={(files) => {
+                if (!isPro) {
+                  toast("File upload membutuhkan Pro", {
+                    description: "Upgrade ke Pro untuk upload file.",
+                    action: { label: "Upgrade", onClick: () => navigate("/pricing") },
+                  });
+                  return;
+                }
+                setUploadedFiles((prev) => [...prev, ...files].slice(0, 5));
+              }}
               uploadedFilesCount={uploadedFiles.length}
               isGenerating={isGenerating}
               onStop={handleStop}

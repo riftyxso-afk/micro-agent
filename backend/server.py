@@ -1061,44 +1061,89 @@ async def create_pending_subscription(request: Request):
 
 @api_router.get("/subscriptions/verify/{order_id}")
 async def verify_subscription(order_id: str, request: Request):
-    """Check payment status from Pakasir and update if completed"""
-    if not supa: return _no_supa()
-    uid = _get_user_id(request)
-    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    """Check payment status via Pakasir API. Auth optional."""
+    import requests as req
+    from datetime import datetime, timezone
 
-    # Check DB first
-    res = supa.table("subscriptions").select("*").eq("order_id", order_id).eq("user_id", uid).execute()
-    if not res.data:
-        return JSONResponse({"error": "Order not found"}, status_code=404)
+    plan = _get_plan_from_order(order_id)
 
-    sub = res.data[0]
-    if sub["status"] == "active":
-        return JSONResponse({"status": "active", "plan": sub["plan"]})
+    # All possible IDR amounts per plan (monthly + yearly)
+    PLAN_AMOUNTS = {
+        "pro": [50000, 480000],
+        "ultra": [300000, 2880000],
+    }
+    amounts_to_try = PLAN_AMOUNTS.get(plan, [50000])
 
-    # Verify with Pakasir API
-    if PAKASIR_API_KEY and PAKASIR_SLUG:
+    # Try DB amount first
+    if supa:
         try:
-            import requests as req
-            verify = req.get(
-                f"https://app.pakasir.com/api/transactiondetail",
-                params={"project": PAKASIR_SLUG, "amount": sub["amount_idr"], "order_id": order_id, "api_key": PAKASIR_API_KEY},
-                timeout=10
-            )
-            if verify.status_code == 200:
-                tx = verify.json().get("transaction", {})
-                if tx.get("status") == "completed":
-                    plan = sub["plan"]
-                    from datetime import datetime, timezone
-                    supa.table("subscriptions").update({
-                        "status": "active",
-                        "activated_at": datetime.now(timezone.utc).isoformat(),
-                    }).eq("order_id", order_id).execute()
-                    return JSONResponse({"status": "active", "plan": plan})
-                return JSONResponse({"status": tx.get("status", "pending"), "plan": sub["plan"]})
-        except Exception as e:
-            logger.warning(f"Pakasir verify error: {e}")
+            sub_check = supa.table("subscriptions").select("amount_idr").eq("order_id", order_id).execute()
+            if sub_check.data and sub_check.data[0].get("amount_idr"):
+                db_amount = sub_check.data[0]["amount_idr"]
+                # Put DB amount first in list
+                amounts_to_try = [db_amount] + [a for a in amounts_to_try if a != db_amount]
+        except Exception:
+            pass
 
-    return JSONResponse({"status": sub["status"], "plan": sub["plan"]})
+    # Always verify directly with Pakasir — try all possible amounts
+    if PAKASIR_API_KEY and PAKASIR_SLUG:
+        last_tx = {}
+        for amount_idr in amounts_to_try:
+            try:
+                verify = req.get(
+                    "https://app.pakasir.com/api/transactiondetail",
+                    params={"project": PAKASIR_SLUG, "order_id": order_id, "amount": amount_idr, "api_key": PAKASIR_API_KEY},
+                    timeout=10
+                )
+                if verify.status_code == 200:
+                    tx = verify.json().get("transaction")
+                    if tx:
+                        last_tx = tx
+                        if tx.get("status") == "completed":
+                            break  # found it!
+            except Exception as e:
+                logger.warning(f"Pakasir verify error (amount={amount_idr}): {e}")
+        tx_status = last_tx.get("status", "")
+        if tx_status == "completed":
+            # Update DB record if Supabase available
+            if supa:
+                try:
+                    uid = _get_user_id(request)
+                    existing = supa.table("subscriptions").select("id").eq("order_id", order_id).execute()
+                    if existing.data:
+                        supa.table("subscriptions").update({
+                            "status": "active",
+                            "plan": plan,
+                            "credits": PLAN_CREDITS.get(plan, 50),
+                            "activated_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("order_id", order_id).execute()
+                    elif uid:
+                        supa.table("subscriptions").insert({
+                            "user_id": uid,
+                            "order_id": order_id,
+                            "plan": plan,
+                            "billing": "monthly",
+                            "amount_idr": int(last_tx.get("amount", 0)),
+                            "credits": PLAN_CREDITS.get(plan, 50),
+                            "status": "active",
+                            "activated_at": datetime.now(timezone.utc).isoformat(),
+                        }).execute()
+                except Exception as db_err:
+                    logger.warning(f"DB update error: {db_err}")
+            return JSONResponse({"status": "active", "plan": plan})
+        return JSONResponse({"status": tx_status or "pending", "plan": plan})
+
+    # No Pakasir key — fallback to DB
+    if not supa:
+        return JSONResponse({"status": "pending", "plan": plan})
+    uid = _get_user_id(request)
+    if not uid:
+        return JSONResponse({"status": "pending", "plan": plan})
+    res = supa.table("subscriptions").select("*").eq("order_id", order_id).eq("user_id", uid).execute()
+    if res.data:
+        sub = res.data[0]
+        return JSONResponse({"status": sub["status"], "plan": sub["plan"]})
+    return JSONResponse({"status": "pending", "plan": plan})
 
 
 # ── Skill installs per user ─────────────────────────────────────────────────────────────
@@ -2820,5 +2865,5 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True, env_file=".env")
 

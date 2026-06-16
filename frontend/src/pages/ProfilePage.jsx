@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
+import { useSubscription } from "@/lib/useSubscription";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
@@ -49,6 +50,7 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
   const { user } = useAuth();
+  const { plan, isPro, isUltra, subscription, loading: subLoading } = useSubscription();
   const [collapsed, setCollapsed] = useState(false);
   const [activeDialog, setActiveDialog] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -289,22 +291,33 @@ export default function ProfilePage() {
               <div className="flex items-center justify-between p-5">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="grid h-8 w-8 place-items-center rounded-xl bg-[#FEF3C7]">
-                      <Crown size={15} strokeWidth={1.75} className="text-[#B45309]" />
+                    <span className={`grid h-8 w-8 place-items-center rounded-xl ${
+                      isUltra ? "bg-[#F5F3FF]" : isPro ? "bg-[#EEF2FF]" : "bg-[#FEF3C7]"
+                    }`}>
+                      <Crown size={15} strokeWidth={1.75} className={isUltra ? "text-[#7C3AED]" : isPro ? "text-[#6366F1]" : "text-[#B45309]"} />
                     </span>
-                    <span className="text-sm font-semibold text-[#111111]">Free Plan</span>
+                    <span className="text-sm font-semibold text-[#111111]">
+                      {subLoading ? "Loading..." : isUltra ? "Ultra" : isPro ? "Pro" : "Free Plan"}
+                    </span>
                   </div>
                   <p className="mt-1.5 text-xs text-[#6B7280]">
-                    50 credits remaining · Resets in 18 days
+                    {subLoading ? "" : `${subscription?.credits ?? 50} credits / bulan`}
+                    {isPro && " · Aktif"}
                   </p>
                 </div>
-                <div className="w-32">
-                  <div className="h-1.5 w-full rounded-full bg-[#F0F1F3]">
-                    <div
-                      className="h-1.5 rounded-full bg-[linear-gradient(90deg,#F59E0B,#F97316)]"
-                      style={{ width: "10%" }}
-                    />
-                  </div>
+                <div className="w-32 text-right">
+                  {!isPro && (
+                    <button onClick={() => navigate("/pricing")}
+                      className="rounded-full bg-[#111111] px-3 py-1 text-xs font-medium text-white hover:bg-[#2D2D2D]">
+                      Upgrade
+                    </button>
+                  )}
+                  {isPro && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Aktif
+                    </span>
+                  )}
                 </div>
               </div>
             </SectionCard>
