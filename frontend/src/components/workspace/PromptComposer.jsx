@@ -19,6 +19,9 @@ import {
   GraduationCap,
   Users,
   Telescope,
+  Gauge,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 import { ToolsMenu } from "@/components/workspace/ToolsMenu";
@@ -100,6 +103,41 @@ const SEARCH_MODES = [
   },
 ];
 
+const EFFORT_LEVELS = [
+  {
+    id: 'low',
+    label: 'Low',
+    badge: 'Low',
+    badgeColor: 'gray',
+    description: 'Quick, concise answers',
+    isDefault: true,
+  },
+  {
+    id: 'medium',
+    label: 'Medium',
+    badge: 'Med',
+    badgeColor: 'blue',
+    description: 'Balanced detail and speed',
+    isDefault: false,
+  },
+  {
+    id: 'high',
+    label: 'High',
+    badge: 'High',
+    badgeColor: 'orange',
+    description: 'Thorough, well-structured responses',
+    isDefault: false,
+  },
+  {
+    id: 'max',
+    label: 'Max',
+    badge: 'Max',
+    badgeColor: 'red',
+    description: 'Most comprehensive, uses most tokens',
+    isDefault: false,
+  },
+];
+
 const improvePrompt = (text) => {
   const t = text.trim();
   if (!t || t.length < 3) return "";
@@ -148,14 +186,14 @@ export const PromptComposer = ({
   const [slashVisible, setSlashVisible] = useState(false);
   const [searchMode, setSearchMode] = useState("off");
   const [deepResearchMode, setDeepResearchMode] = useState(false);
-  const [dropupOpen, setDropupOpen] = useState(false);
+  const [effortLevel, setEffortLevel] = useState("low");
+  const [drillView, setDrillView] = useState(null); // null = model list, 'effort' = effort + reasoning panel
   const [modeDropupOpen, setModeDropupOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const deepResearchModeDropup = [modeDropupOpen, setModeDropupOpen];
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const dropdownRef = useRef(null);
-  const dropupRef = useRef(null);
   const modeDropupRef = useRef(null);
   const mobileMenuRef = useRef(null);
 
@@ -182,18 +220,6 @@ export const PromptComposer = ({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [mobileMenuOpen]);
-
-  // Close dropup on outside click
-  useEffect(() => {
-    if (!dropupOpen) return;
-    const handler = (e) => {
-      if (dropupRef.current && !dropupRef.current.contains(e.target)) {
-        setDropupOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [dropupOpen]);
 
   const webSearch = webSearchEnabled ?? localWebSearch;
 
@@ -277,7 +303,7 @@ export const PromptComposer = ({
     }
 
     const activeMode = SEARCH_MODES.find((m) => m.id === searchMode);
-    onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false, activeSkill?.slug || null);
+    onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false, activeSkill?.slug || null, effortLevel);
     setValue("");
     setAttachments([]);
     setSlashVisible(false);
@@ -383,7 +409,7 @@ export const PromptComposer = ({
     if (onModelSelect) {
       onModelSelect(m, false);
     }
-    setDropdownOpen(false);
+    setDrillView("effort");
   };
 
   return (
@@ -544,7 +570,6 @@ export const PromptComposer = ({
             searchMode={searchMode}
             onSearchModeChange={(mode) => { setSearchMode(mode.id); }}
             reasoningEnabled={reasoningEnabled}
-            onReasoningToggle={onReasoningToggle}
             deepResearchMode={deepResearchMode}
             onDeepResearchToggle={() => setDeepResearchMode((d) => !d)}
             activeSkill={activeSkill}
@@ -581,6 +606,16 @@ export const PromptComposer = ({
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 {model.credits}
               </span>
+              {/* Effort level badge */}
+              <span className={`hidden items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex ${
+                effortLevel === "medium" ? "bg-[#EFF6FF] text-[#3B82F6]" :
+                effortLevel === "high" ? "bg-[#FFF7ED] text-[#F97316]" :
+                effortLevel === "max" ? "bg-[#FEF2F2] text-[#EF4444]" :
+                "bg-[#F3F4F6] text-[#6B7280]"
+              }`}>
+                <Gauge size={9} strokeWidth={2} />
+                {EFFORT_LEVELS.find((e) => e.id === effortLevel)?.badge || "Low"}
+              </span>
               <ChevronDown size={14} strokeWidth={2} className={`hidden text-[#9CA3AF] transition-transform duration-150 sm:block ${dropdownOpen ? "rotate-180" : ""}`} />
               {/* Mobile: just chevron down */}
               <ChevronDown size={13} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 sm:hidden ${dropdownOpen ? "rotate-180" : ""}`} />
@@ -589,60 +624,131 @@ export const PromptComposer = ({
               {dropdownOpen && (
               <div
                 data-testid="model-dropdown"
-                className="ma-fade-in absolute bottom-full right-0 z-50 mb-2 max-h-[70vh] w-[min(280px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white p-1.5 shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
+                className="ma-fade-in absolute bottom-full right-0 z-50 mb-2 max-h-[70vh] w-[min(280px,calc(100vw-16px))] overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-1.5 shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
               >
-                {MODELS.map((m) => {
-                  const isSelected = !autoMode && model.id === m.id;
-                  if (m.locked) {
-                    return (
-                      <Link
-                        key={m.id}
-                        to={m.lockedHref || "/introducing-opus"}
-                        data-testid={`model-dropdown-${m.id}`}
-                        onClick={() => setDropdownOpen(false)}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-60"
-                      >
-                        <ModelIcon model={m} size={26} />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                            <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                {drillView === null ? (
+                  /* ── Model List ── */
+                  <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 12px)" }}>
+                    {MODELS.map((m) => {
+                      const isSelected = !autoMode && model.id === m.id;
+                      if (m.locked) {
+                        return (
+                          <Link
+                            key={m.id}
+                            to={m.lockedHref || "/introducing-opus"}
+                            data-testid={`model-dropdown-${m.id}`}
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-60"
+                          >
+                            <ModelIcon model={m} size={26} />
+                            <span className="flex min-w-0 flex-1 flex-col">
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                                <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                              </span>
+                              <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                            </span>
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]">
+                              Soon
+                            </span>
+                          </Link>
+                        );
+                      }
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          data-testid={`model-dropdown-${m.id}`}
+                          onClick={() => selectModel(m)}
+                          className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
+                            isSelected
+                              ? "bg-[#F7F7F8]"
+                              : "hover:bg-[#FAFAFA]"
+                          }`}
+                        >
+                          <ModelIcon model={m} size={26} />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                              {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
+                            </span>
+                            <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
                           </span>
-                          <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
-                        </span>
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]">
-                          Soon
-                        </span>
-                      </Link>
-                    );
-                  }
-                  return (
+                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            {m.credits}
+                          </span>
+                          <ChevronRight size={14} strokeWidth={1.75} className="shrink-0 text-[#9CA3AF]" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* ── Effort + Reasoning Panel (drillView === 'effort') ── */
+                  <div>
+                    {/* Back button */}
                     <button
-                      key={m.id}
                       type="button"
-                      data-testid={`model-dropdown-${m.id}`}
-                      onClick={() => selectModel(m)}
-                      className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
-                        isSelected
-                          ? "bg-[#F7F7F8]"
-                          : "hover:bg-[#FAFAFA]"
-                      }`}
+                      onClick={() => setDrillView(null)}
+                      className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left text-[13px] font-medium text-[#6B7280] transition-colors hover:bg-[#F3F4F6]"
                     >
-                      <ModelIcon model={m} size={26} />
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="flex items-center gap-1.5">
-                          <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                          {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
-                        </span>
-                        <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
-                      </span>
-                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                        {m.credits}
-                      </span>
+                      <ChevronLeft size={14} strokeWidth={1.75} />
+                      Models
                     </button>
-                  );
-                })}
+                    {/* Selected model name */}
+                    <div className="mb-1 flex items-center gap-2 px-2 py-1">
+                      <ModelIcon model={model} size={20} />
+                      <span className="text-sm font-semibold text-[#111111]">{model.name}</span>
+                    </div>
+                    <div className="border-t border-[#E5E7EB]" />
+                    {/* Effort Levels */}
+                    <div className="px-1 pt-1.5 pb-0.5">
+                      <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">Effort</p>
+                      {EFFORT_LEVELS.map((level) => {
+                        const active = effortLevel === level.id;
+                        return (
+                          <button
+                            key={level.id}
+                            type="button"
+                            data-testid={`effort-option-${level.id}`}
+                            onClick={() => { setEffortLevel(level.id); }}
+                            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition-colors duration-100 ${
+                              active ? "bg-[#F7F7F8]" : "hover:bg-[#FAFAFA]"
+                            }`}
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <span className="flex items-center gap-1.5 text-xs font-medium text-[#111111]">
+                                {level.label}
+                                {level.isDefault && (
+                                  <span className="rounded bg-[#F3F4F6] px-1.5 py-0.5 text-[9px] font-normal text-[#6B7280]">Default</span>
+                                )}
+                              </span>
+                              <span className="text-[10px] text-[#6B7280]">{level.description}</span>
+                            </div>
+                            {active && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Reasoning Toggle */}
+                    <div className="border-t border-[#E5E7EB] px-1 pt-1.5 pb-1 mt-1">
+                      <button
+                        type="button"
+                        data-testid="reasoning-toggle"
+                        onClick={() => { onReasoningToggle?.(); }}
+                        className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition-colors duration-100 hover:bg-[#FAFAFA]"
+                      >
+                        <span className="flex items-center gap-2 text-xs font-medium text-[#111111]">
+                          <Brain size={14} strokeWidth={1.75} />
+                          Show Reasoning
+                        </span>
+                        <span className={`text-[10px] font-semibold ${reasoningEnabled ? "text-[#3B82F6]" : "text-[#9CA3AF]"}`}>
+                          {reasoningEnabled ? "ON" : "OFF"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

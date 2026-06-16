@@ -24,7 +24,7 @@ const PANELS = {
  *
  * Props:
  *  searchMode, onSearchModeChange
- *  reasoningEnabled, onReasoningToggle
+ *  deepResearchMode, onDeepResearchToggle
  *  deepResearchMode, onDeepResearchToggle
  *  activeSkill, onSkillSelect, onSkillClear
  */
@@ -32,7 +32,6 @@ export const ToolsMenu = ({
   searchMode = "off",
   onSearchModeChange,
   reasoningEnabled = true,
-  onReasoningToggle,
   deepResearchMode = false,
   onDeepResearchToggle,
   activeSkill = null,
@@ -206,26 +205,6 @@ export const ToolsMenu = ({
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">AI Mode</p>
                   </div>
                   <div className="py-1">
-                    <button
-                      type="button"
-                      onClick={onReasoningToggle}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
-                        reasoningEnabled ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                      }`}
-                    >
-                      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-                        reasoningEnabled ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                      }`}>
-                        <Brain size={12} strokeWidth={1.75} />
-                      </span>
-                      <span className="flex-1">
-                        <span className={`block text-[13px] font-medium ${
-                          reasoningEnabled ? "text-[#3B6EF6]" : "text-[#111111]"
-                        }`}>Reasoning</span>
-                        <span className="block text-[10px] text-[#9CA3AF]">Tampilkan proses berpikir</span>
-                      </span>
-                      {reasoningEnabled && <Check size={12} strokeWidth={2.5} className="shrink-0 text-[#3B6EF6]" />}
-                    </button>
                     <button
                       type="button"
                       onClick={onDeepResearchToggle}

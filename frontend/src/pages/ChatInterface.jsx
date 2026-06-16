@@ -109,6 +109,7 @@ export default function ChatInterface() {
         reasoningAtSend = true,
         searchModePrompt = "",
         skillSlug = null,
+        effortLevel = "low",
       } = opts;
       // Abort any existing generation before starting a new one
       if (abortRef.current) {
@@ -129,6 +130,7 @@ export default function ChatInterface() {
         room: roomAtSend,
         webSearch: webSearchAtSend,
         skillSlug,
+        effortLevel,
         reasoning: reasoningAtSend,
         searchModePrompt,
         signal: controller.signal,
@@ -139,6 +141,20 @@ export default function ChatInterface() {
           });
         },
         onStatus: (status) => {
+          if (status.phase === "skill_loading" && status.status === "started") {
+            updateMessage(assistantId, {
+              state: "thinking",
+              status: "loading skill...",
+              skillPhase: "loading",
+              skillSlug: status.skill_slug || skillSlug,
+            });
+          }
+          if (status.phase === "skill_loading" && status.status === "completed") {
+            updateMessage(assistantId, {
+              skillPhase: "loaded",
+              status: "skill loaded",
+            });
+          }
           if (status.phase === "web_search" && status.status === "started") {
             updateMessage(assistantId, {
               state: "thinking",
@@ -319,7 +335,7 @@ export default function ChatInterface() {
   }, [autoMode, model, messages, updateMessage]);
 
   const sendMessage = useCallback(
-    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null) => {
+    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low") => {
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
         handleFileUploadAnalysis(text, uploadedFiles);
@@ -340,6 +356,8 @@ export default function ChatInterface() {
         autoMode: isImgReq ? false : autoMode,
         webSearch,
         searchMode: isImgReq ? "off" : activeModeId,
+        skillSlug: skillSlug || null,
+        skillPhase: skillSlug ? "loading" : null,
         text: "",
         code: null,
         prompt: text,
@@ -396,6 +414,7 @@ export default function ChatInterface() {
         reasoningAtSend: reasoningEnabled,
         searchModePrompt,
         skillSlug,
+        effortLevel,
       });
     },
     [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis],

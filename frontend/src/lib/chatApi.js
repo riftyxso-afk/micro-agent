@@ -167,6 +167,7 @@ export function streamChat({
   reasoning = true,
   searchModePrompt = "",
   skillSlug = null,
+  effortLevel = "low",
   signal,
   onMeta,
   onStatus,
@@ -200,6 +201,7 @@ export function streamChat({
       reasoning,
       search_mode_prompt: searchModePrompt || "",
       skill_slug: skillSlug || null,
+      effort_level: effortLevel,
     }),
     signal,
   })

@@ -148,6 +148,7 @@ class ChatStreamRequest(BaseModel):
     reasoning: bool = True
     search_mode_prompt: str = ""
     skill_slug: Optional[str] = None
+    effort_level: str = "low"
 
     @field_validator("model_id", "room", mode="before")
     @classmethod
@@ -383,6 +384,27 @@ def format_search_context(query: str, results: Sequence[dict]) -> str:
     return context[:max_context]
 
 
+# ── Effort Config ─────────────────────────────────────────────────────────────
+
+EFFORT_CONFIGS = {
+    "low": {
+        "max_tokens": 1024,
+        "system_addition": "Be concise and direct. Give short, clear answers. Avoid unnecessary elaboration."
+    },
+    "medium": {
+        "max_tokens": 4096,
+        "system_addition": "Provide a well-structured response with reasonable detail. Balance thoroughness with conciseness."
+    },
+    "high": {
+        "max_tokens": 8192,
+        "system_addition": "Be very thorough and comprehensive. Cover all important aspects, provide examples, consider edge cases, and structure your response clearly with headers and sections where appropriate."
+    },
+    "max": {
+        "max_tokens": 16000,
+        "system_addition": "Give the most comprehensive, exhaustive response possible. Cover every angle, include detailed examples, anticipate follow-up questions and address them, provide alternatives, and structure everything with clear sections. Leave nothing important out."
+    }
+}
+
 # ── Skills ───────────────────────────────────────────────────────────────────
 
 SKILLS_DIR = ROOT_DIR.parent / "skills"
@@ -469,6 +491,9 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
                 "Baca dan ikuti instruksi skill di atas sebelum merespons."
             )
 
+    effort = EFFORT_CONFIGS.get(payload.effort_level, EFFORT_CONFIGS["low"])
+    effort_block = f"\n\nRESPONSE EFFORT: {payload.effort_level.upper()}\n{effort['system_addition']}"
+
     system = {
         "role": "system",
         "content": (
@@ -489,6 +514,7 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
             + skill_block
             + f"{room_line} {attachment_line}".strip()
             + search_mode_line
+            + effort_block
             + web_line
         ),
     }
@@ -529,6 +555,8 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
         "stream": True,
         "temperature": 0.7,
     }
+    effort = EFFORT_CONFIGS.get(payload.effort_level, EFFORT_CONFIGS["low"])
+    body["max_tokens"] = effort["max_tokens"]
     # When web_search is active, use higher reasoning effort so model
     # fully synthesizes web context before generating the answer.
     # When only reasoning (no web), use medium effort.
@@ -1376,6 +1404,16 @@ async def get_status_checks():
 
 
 async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]:
+    # Skill loading phase — emit real event before anything else
+    if payload.skill_slug:
+        skill_name = payload.skill_slug.replace("-", " ").title()
+        for s in BUILTIN_SKILLS:
+            if s["slug"] == payload.skill_slug:
+                skill_name = s["name"]
+                break
+        yield sse("status", {"phase": "skill_loading", "status": "started", "skill_slug": payload.skill_slug, "skill_name": skill_name})
+        yield sse("status", {"phase": "skill_loading", "status": "completed", "skill_slug": payload.skill_slug})
+
     web_context = ""
     if payload.web_search:
         query = extract_search_query(payload)

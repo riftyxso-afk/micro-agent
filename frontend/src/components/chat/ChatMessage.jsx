@@ -186,6 +186,21 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
           </div>
         ) : (
           <>
+            {/* Skill loading indicator */}
+            {message.skillSlug && message.skillPhase === "loading" && (
+              <div className="ma-fade-in mb-3 flex items-center gap-3 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] px-4 py-2.5">
+                <div className="ma-grid-loader" style={{ width: 14, height: 14, color: "#4338CA" }}>
+                  {[0,1,2,3,4,5,6,7,8].map(i => <span key={i} />)}
+                </div>
+                <div>
+                  <p className="text-[13px] font-medium text-[#4338CA]">
+                    Loading skill: {message.skillSlug?.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                  </p>
+                  <p className="text-[11px] text-[#6366F1]/70">Applying instructions...</p>
+                </div>
+              </div>
+            )}
+
             {/* Search pipeline — show during load AND keep visible after done with sources */}
             {(message.searchMode && message.searchMode !== "off") &&
               (message.state === "pending" || message.state === "thinking" ||
