@@ -81,20 +81,25 @@ export default function ChatInterface() {
   // Supabase session
   const { user, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
 
-  // Load existing session from history
+  const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
+  const [sessionId, setSessionId] = useState(null);
+  const savedMsgCountRef = useRef(0);
+
+  // Load existing session from history when navigating from HistoryDialog
   useEffect(() => {
     const sid = seed?.sessionId;
-    if (!sid || !user) return;
-    import("@/lib/supabase").then(({ fetchMessages, isSupabaseEnabled }) => {
-      if (!isSupabaseEnabled) return;
-      setSessionId(sid);
+    if (!sid || !user || !isSupabaseEnabled) return;
+    setSessionId(sid);
+    import("@/lib/supabase").then(({ fetchMessages }) => {
       fetchMessages(sid).then((msgs) => {
         if (!msgs.length) return;
         const restored = msgs.map((m) => ({
           id: m.id || nextId(),
           role: m.role,
           text: m.text || "",
-          model: m.model_id ? { id: m.model_id, name: m.model_id, credits: 1 } : { id: "deepseek-v4-flash", name: "DeepSeek v4 Flash", credits: 1 },
+          model: m.model_id
+            ? { id: m.model_id, name: m.model_id, credits: 1 }
+            : { id: "deepseek-v4-flash", name: "DeepSeek v4 Flash", credits: 1 },
           state: "completed",
           status: "history",
           searchMode: m.search_mode || "off",
@@ -106,9 +111,6 @@ export default function ChatInterface() {
       }).catch(() => {});
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
-  const [sessionId, setSessionId] = useState(null);
-  const savedMsgCountRef = useRef(0);
 
   // Sync credits from subscription
   useEffect(() => {
