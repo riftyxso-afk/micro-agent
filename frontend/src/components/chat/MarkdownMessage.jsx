@@ -51,7 +51,32 @@ const renderInline = (v) => {
     if (raw.startsWith("$") && raw.endsWith("$")) return <InlineMath key={i} code={raw.slice(1, -1)} />;
     if (raw.startsWith("![")) {
       const m = raw.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-      return m ? <img key={i} src={m[2]} alt={m[1] || ""} className="my-2 max-w-full rounded-xl" /> : raw;
+      if (!m) return raw;
+      const imgSrc = m[2].trim();
+      const imgAlt = m[1] || "";
+      // Try to proxy broken CDN images via Google image proxy if direct fails
+      return (
+        <span key={i} className="block my-3">
+          <img
+            src={imgSrc}
+            alt={imgAlt}
+            className="max-w-full rounded-xl shadow-sm"
+            loading="lazy"
+            onError={(e) => {
+              const el = e.currentTarget;
+              if (!el.dataset.tried) {
+                el.dataset.tried = "1";
+                // Try without query params
+                const clean = imgSrc.split("?")[0];
+                if (clean !== imgSrc) { el.src = clean; return; }
+              }
+              // Hide broken image
+              el.parentElement.style.display = "none";
+            }}
+          />
+          {imgAlt && <em className="mt-1 block text-center text-[11px] text-[#9CA3AF]">{imgAlt}</em>}
+        </span>
+      );
     }
     if (raw.startsWith("[")) {
       const m = raw.match(/^\[([^\]]+)\]\(([^)]+)\)$/);

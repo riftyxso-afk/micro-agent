@@ -2371,33 +2371,46 @@ class DeepResearchRequest(BaseModel):
 
 
 DEEP_RESEARCH_SYSTEM = """\
-Kamu adalah analis riset mendalam. Tugasmu adalah mensintesis informasi dari berbagai sumber web
-menjadi laporan komprehensif dalam Bahasa Indonesia.
+Kamu adalah jurnalis dan analis riset mendalam. Tugasmu adalah menulis artikel blog yang komprehensif,
+naratif, dan sangat enak dibaca dalam Bahasa Indonesia. Bukan laporan kaku — tapi seperti long-form blog
+professional di Medium atau majalah teknologi.
 
-Kamu akan diberikan hasil pencarian web. Tugasmu:
-1. Analisis semua informasi yang diberikan
-2. Identifikasi tema utama, tren, dan insight penting
-3. Tulis laporan terstruktur yang komprehensif
-4. Sertakan sitasi [1],[2] dst. di akhir
+STYLE:
+- Alur naratif yang mengalir seperti cerita
+- Heading yang jelas dan menarik (##, ###)
+- Setiap section dimulai dengan gambar yang relevan, BARU diikuti teks
+- Teks tidak mengacu ke gambar (jangan tulis "seperti terlihat di gambar"). Gambar adalah ilustrasi visual
+- Paragraf pendek-sedang (3-5 kalimat), mudah dibaca
+- Gunakan SEMUA gambar yang tersedia, tersebar merata di seluruh artikel
 
-Format laporan:
-## [Judul Laporan]
+IMEGE USAGE (WAJIB):
+- Setiap section/heading HARUS ada minimal 1 gambar
+- Tempatkan gambar di AWAL section, sebelum paragraf penjelasan
+- Format: ![caption singkat kontekstual](url) — caption max 5 kata
+- Gunakan SEMUA gambar yang diberikan, jangan skip
+- Urutan: heading -> gambar relevan -> teks
 
-### Ringkasan Eksekutif
-...
+FORMAT:
+## [Judul Artikel Menarik]
 
-### Temuan Utama
-...
+_Deskripsi singkat 1-2 kalimat_
 
-### Analisis Detail
-...
+---
 
-### Kesimpulan
-...
+## [Section 1]
 
-### Referensi
-[1] judul - domain.com
-[2] ...
+![caption](url_gambar)
+
+Teks penjelasan...
+
+## [Section 2]
+
+![caption](url_gambar)
+
+Teks penjelasan...
+
+## Referensi
+- [judul](url)
 """
 
 
@@ -2537,17 +2550,17 @@ async def run_deep_research(query: str):
     # ── STEP 3: Fetch top URLs ─────────────────────────────────────────────────
     seen_urls: set = set()
     urls_to_read: List[str] = []
-    # Deduplicate and prioritize — take up to 15 URLs
+    # Deduplicate and prioritize — take ALL found URLs up to 20
     for r in all_results:
         url = r.get("url", "")
-        if url and url not in seen_urls and not url.endswith(".pdf") and "youtube.com" not in url:
+        if url and url not in seen_urls and not url.endswith(".pdf"):
             seen_urls.add(url)
             urls_to_read.append(url)
-        if len(urls_to_read) >= 15:
+        if len(urls_to_read) >= 20:
             break
 
     web_context_parts: List[str] = []
-    for url in urls_to_read:
+    for idx, url in enumerate(urls_to_read):
         step_msg = f"Membaca: {url}"
         steps.append(step_msg)
         yield evt({"type": "step", "action": "read", "message": step_msg, "step": len(steps), "url": url})
@@ -2556,8 +2569,7 @@ async def run_deep_research(query: str):
         title = next((r.get("title", url) for r in all_results if r.get("url") == url), url)
         sources.append({"url": url, "title": title})
         yield evt({"type": "source_added", "url": url, "title": title, "total": len(sources)})
-        # Include more content per source for richer report
-        web_context_parts.append(f"### [{i+1}] {title}\nURL: {url}\n\n{content[:3000]}")
+        web_context_parts.append(f"### [{idx+1}] {title}\nURL: {url}\n\n{content[:3000]}")
 
     # ── STEP 3.5: Search images (parallel: Firecrawl + Tavily) ──────────────────────
     image_step = "Mencari gambar relevan..."
@@ -2641,10 +2653,30 @@ async def run_deep_research(query: str):
     except Exception as exc:
         logger.warning("Image search failed: %s", exc)
 
+    # Also try to extract images from already-fetched sources (mining web content)
+    if len(images) < 5 and web_context_parts:
+        extra_imgs = []
+        for part in web_context_parts:
+            # Find markdown image URLs in content
+            extra = re.findall(r'!\[[^\]]*\]\((https?://[^)]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^)]*)??)\)', part)
+            for url in extra:
+                url = url.rstrip(")")
+                if url not in seen and len(url) < 500:
+                    seen.add(url)
+                    images.append({"url": url, "alt": query, "source_url": "", "cdn": is_cdn_url(url)})
+        if extra_imgs:
+            images.extend(extra_imgs)
+            images.sort(key=lambda x: (0 if x.get("cdn") else 1))
+            images = images[:9]
+
+    # Yield images even if just 1+
     if images:
         yield evt({"type": "images_found", "images": images})
+        logger.info(f"Deep research images: {len(images)} found")
+    else:
+        logger.warning("Deep research: no images found")
 
-    # ── STEP 4: Synthesize report ─────────────────────────────────────────────
+    # ── STEP 4: Synthesize report ─────────────────────────────────────────────────────────
     synth_step = f"Mensintesis {len(sources)} sumber menjadi laporan mendalam..."
     steps.append(synth_step)
     yield evt({"type": "step", "action": "synthesize", "message": synth_step, "step": len(steps)})
@@ -2657,34 +2689,52 @@ async def run_deep_research(query: str):
         for i, s in enumerate(sources)
     )
 
-    # Build image context for model
+    # Build image context: include CDN images first, include source page for relevance check
     image_context = ""
     if images:
-        image_context = "\n\nGambar yang tersedia untuk digunakan dalam laporan (gunakan format markdown ![alt](url)):\n"
-        image_context += "\n".join(f"- ![{img['alt']}]({img['url']})" for img in images[:4])
+        image_context = "\n\nGambar relevan yang bisa digunakan dalam laporan.\n"
+        image_context += "PENTING: Hanya sisipkan gambar yang BENAR-BENAR relevan dengan konten di sekitarnya. Jangan jelaskan apa isi gambar — langsung sisipkan dengan caption singkat yang kontekstual.\n"
+        image_context += "Format: ![caption kontekstual singkat](url_gambar)\n\n"
+        # CDN images are more reliable
+        cdn_imgs = [img for img in images if img.get("cdn")]
+        other_imgs = [img for img in images if not img.get("cdn")]
+        ordered = cdn_imgs + other_imgs
+        image_context += "Daftar gambar tersedia:\n"
+        image_context += "\n".join(
+            f"- {img['url']} | alt: {img['alt']} | sumber: {img.get('source_url','')}"
+            for img in ordered[:6]
+        )
 
-    report_prompt = f"""Topik riset: {query}
+    # Build numbered image reference for AI
+    image_ref = ""
+    if images:
+        cdn_imgs = [img for img in images if img.get("cdn")]
+        other_imgs = [img for img in images if not img.get("cdn")]
+        ordered_imgs = cdn_imgs + other_imgs
+        image_ref = f"\n\nGAMBAR TERSEDIA ({len(ordered_imgs)} gambar) — WAJIB GUNAKAN SEMUA, tersebar merata di artikel:\n"
+        for n, img in enumerate(ordered_imgs, 1):
+            image_ref += f"{n}. URL: {img['url']}\n   Alt: {img['alt']}\n   Sumber halaman: {img.get('source_url', '')}\n"
+        image_ref += "\nInstruksi: Tempatkan setiap gambar di awal section yang paling relevan. Format: ![caption max 5 kata](url)\n"
 
-Anda memiliki {len(sources)} sumber web berikut:
+    report_prompt = f"""Topik artikel: {query}
 
+Kamu memiliki {len(sources)} sumber dan {len(images)} gambar.
+
+KONTEN DARI SUMBER:
 {context_text}
-{image_context}
+{image_ref}
 ---
-Daftar sumber lengkap:
+Daftar sumber:
 {ref_list}
 
-Tulis laporan riset KOMPREHENSIF dan MENDALAM dalam Bahasa Indonesia.
-Laporan harus:
-- Minimal 800-1200 kata
-- Berstruktur dengan heading yang jelas
-- Mencakup semua aspek penting dari data yang ada
-- Menyertakan data, angka, dan fakta spesifik dari sumber
-- Sitasi inline: gunakan format superscript link seperti ini: [judul sumber](url) atau cukup \u00b9[](url) \u00b2[](url) — JANGAN gunakan format [[1]](url)
-- Sisipkan gambar yang relevan menggunakan markdown: ![deskripsi gambar](url_gambar) di dalam teks laporan
-- Di akhir laporan, tambahkan bagian **## Referensi** dengan daftar:
-  - [judul artikel](url)
-  - [judul artikel](url)
-- Berikan analisis dan insight, bukan sekadar ringkasan"""
+Tulis artikel blog PANJANG dalam Bahasa Indonesia tentang "{query}".
+- Minimal 1000-1500 kata
+- Alur naratif seperti long-form blog (Medium style)
+- Setiap section besar: mulai dengan gambar, baru teks
+- Gunakan SEMUA {len(images)} gambar yang tersedia, tersebar di seluruh artikel
+- Setiap section harus relevan dengan topik "{query}"
+- Sitasi inline: [judul](url) — JANGAN [[1]]
+- Akhiri dengan ## Referensi"""
 
     try:
         report = await call_model([
