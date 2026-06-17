@@ -2655,13 +2655,13 @@ async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]
     has_error = False
     for event in stream_provider(payload, web_context=web_context):
         # Inject token info into meta event
-        if '"type":"meta"' in event or '"type": "meta"' in event:
+        if event.startswith("event: meta"):
             try:
                 payload_str = event.split("data: ", 1)[1] if "data: " in event else ""
                 meta = json.loads(payload_str.strip())
                 meta["tokens_used"] = token_deduction.get("cost", 0)
                 meta["tokens_left"] = token_deduction.get("balance", 0)
-                event = f"data: {json.dumps(meta)}\n\n"
+                event = f"event: meta\ndata: {json.dumps(meta, ensure_ascii=False)}\n\n"
             except (json.JSONDecodeError, IndexError):
                 pass
         # Track errors for refund

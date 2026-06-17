@@ -22,7 +22,7 @@ const AutoModelMark = (props) => (
 const MODEL_ICON_SRC = {
   "claude-sonnet-4-5-1m": "/svg/claude-ai-icon.svg",
   "claude-opus-4-8": "/svg/claude-ai-icon.svg",
-  "claude-opus-4-6": "/svg/claude-ai-icon.svg",
+  "claude-opus-4.6": "/svg/claude-ai-icon.svg",
   "claude-sonnet-4-6": "/svg/claude-ai-icon.svg",
   "deepseek-v4-flash": "/svg/deepseek.svg",
   "kimi-k2.6": "/svg/kimi-icon.svg",

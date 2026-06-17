@@ -677,6 +677,16 @@ export const PromptComposer = ({
         }`}
       />
 
+      {/* Mobile token balance — visible only on small screens */}
+      {tokenBalance !== null && (
+        <div className={`ma-fade-in mb-1 flex items-center justify-end gap-1 rounded-full px-1 text-[10px] font-semibold sm:hidden ${
+          tokenBalance <= 5 ? "text-[#EF4444]" : "text-[#9CA3AF]"
+        }`}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
+          {tokenBalance} token
+        </div>
+      )}
+
       <div className="mt-2 flex items-center justify-between gap-1">
         <div className="flex min-w-0 items-center gap-0.5">
           <input
@@ -740,20 +750,22 @@ export const PromptComposer = ({
                 {EFFORT_LEVELS.find((e) => e.id === effortLevel)?.badge || "Low"}
               </span>
               {/* Token balance badge — inside model selector */}
-              {tokenBalance !== null && (
-                <span className={`hidden items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold sm:inline-flex ${
-                  tokenBalance <= 5
-                    ? "bg-[#FEF2F2] text-[#EF4444] animate-pulse"
-                    : "bg-[#F3F4F6] text-[#6B7280]"
-                }`}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
-                  {tokenBalance}
-                </span>
-              )}
               <ChevronDown size={14} strokeWidth={2} className={`hidden text-[#9CA3AF] transition-transform duration-150 sm:block ${dropdownOpen ? "rotate-180" : ""}`} />
               {/* Mobile: just chevron down */}
               <ChevronDown size={13} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 sm:hidden ${dropdownOpen ? "rotate-180" : ""}`} />
             </button>
+
+            {/* Token balance — standalone badge next to model selector */}
+            {tokenBalance !== null && (
+              <span className={`ma-fade-in hidden items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold sm:inline-flex ${
+                tokenBalance <= 5
+                  ? "border-[#FECACA] bg-[#FEF2F2] text-[#EF4444]"
+                  : "border-[#E5E7EB] bg-[#F7F7F8] text-[#6B7280]"
+              }`}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
+                {tokenBalance}
+              </span>
+            )}
 
               {dropdownOpen && (
               <div

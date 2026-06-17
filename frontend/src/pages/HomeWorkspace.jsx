@@ -13,6 +13,7 @@ import { Logo } from "@/components/workspace/Logo";
 import { HistoryDialog } from "@/components/workspace/HistoryDialog";
 import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
+import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
 import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS } from "@/lib/workspaceData";
 import { API_BASE_URL } from "@/lib/chatApi";
 
@@ -290,6 +291,7 @@ export default function HomeWorkspace() {
         open={activeDialog === "more"}
         onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
       />
+      <LowTokenPopup tokenBalance={tokenBalance} />
     </div>
   );
 }

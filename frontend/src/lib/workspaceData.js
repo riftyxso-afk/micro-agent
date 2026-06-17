@@ -53,7 +53,7 @@ export const MODEL_TOKEN_COST = {
   "glm-5":                1,
   "gemini-2-5-flash":     2,
   "minimax-m2-5":         1,
-  "claude-opus-4-6":      5,
+  "claude-opus-4.6":      5,
   "claude-sonnet-4-6":    2,
   "claude-opus-4-8":      8,
   "kimi-k2.6":            2,
@@ -121,7 +121,7 @@ export const MODELS = [
     maintenance: true,
   },
   {
-    id: "claude-opus-4-6",
+    id: "claude-opus-4.6",
     name: "Claude Opus 4.6",
     shortName: "Opus 4.6",
     credits: 5,

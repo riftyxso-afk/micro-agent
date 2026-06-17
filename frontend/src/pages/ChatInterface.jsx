@@ -10,6 +10,7 @@ import { PromptComposer } from "@/components/workspace/PromptComposer";
 import { HistoryDialog } from "@/components/workspace/HistoryDialog";
 import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
+import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
 import {
   getModelById,
   DEFAULT_MODEL_ID,
@@ -384,6 +385,7 @@ export default function ChatInterface() {
           });
           // Resync balance on error (backend may have refunded)
           if (err.message?.includes("insufficient_tokens") || err.message?.includes("Token tidak cukup")) {
+            setTokenBalance(0);
             fetchTokenBalance();
           }
           setIsGenerating(false);
@@ -1069,18 +1071,6 @@ export default function ChatInterface() {
 
         <footer className="shrink-0 pt-3 sm:pb-4 md:pb-4" style={{paddingBottom: 'max(32px, env(safe-area-inset-bottom))'}}>        
           <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6" data-testid="chat-composer">
-            {/* Mobile token balance */}
-            {tokenBalance !== null && (
-              <div className={`mb-2 flex items-center justify-center gap-1.5 rounded-full py-1 text-[11px] font-semibold sm:hidden ${
-                tokenBalance <= 5
-                  ? "bg-[#FEF2F2] text-[#EF4444]"
-                  : "text-[#9CA3AF]"
-              }`}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
-                {tokenBalance} token tersisa
-              </div>
-            )}
-
             <PromptComposer
               compact
               placeholder="Ask anything"
@@ -1134,6 +1124,7 @@ export default function ChatInterface() {
         open={activeDialog === "more"}
         onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
       />
+      <LowTokenPopup tokenBalance={tokenBalance} />
     </div>
   );
 }
