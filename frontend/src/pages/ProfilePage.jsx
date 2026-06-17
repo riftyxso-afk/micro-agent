@@ -20,8 +20,10 @@ import {
   MessageSquare,
   Clock,
   Award,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { API_BASE_URL } from "@/lib/chatApi";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMenu } from "@/components/workspace/UserMenu";
@@ -32,28 +34,25 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
-const STATS = [
-  { icon: MessageSquare, label: "Conversations", value: "—" },
-  { icon: Zap, label: "Credits used", value: "—" },
-  { icon: Clock, label: "Hours saved", value: "—" },
-  { icon: Award, label: "Streak", value: "—" },
-];
-
-const ACTIVITY = [];
-
 const SectionCard = ({ children }) => (
   <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_1px_3px_rgba(17,24,39,0.04)]">
     {children}
   </div>
 );
 
+const SkeletonPulse = ({ className = "" }) => (
+  <span className={`inline-block rounded-md bg-[#F3F4F6] animate-pulse ${className}`} />
+);
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { plan, isPro, isUltra, subscription, loading: subLoading } = useSubscription();
   const [collapsed, setCollapsed] = useState(false);
   const [stats, setStats] = useState({ conversations: null });
+  const [tokenBalance, setTokenBalance] = useState(null);
+  const [tokenLoading, setTokenLoading] = useState(true);
   const [recentSessions, setRecentSessions] = useState([]);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -64,6 +63,20 @@ export default function ProfilePage() {
       setStats({ conversations: sessions.length });
     }).catch(() => {}).finally(() => setStatsLoading(false));
   }, [user]);
+
+  // Fetch real token balance
+  useEffect(() => {
+    if (!user) { setTokenLoading(false); return; }
+    setTokenLoading(true);
+    const token = session?.access_token;
+    fetch(`${API_BASE_URL}/api/credits/${user.id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then(data => setTokenBalance(data.balance ?? 0))
+      .catch(() => setTokenBalance(null))
+      .finally(() => setTokenLoading(false));
+  }, [user, session]);
   const [activeDialog, setActiveDialog] = useState(null);
   const [editing, setEditing] = useState(false);
   const [profile, setProfile] = useState({
@@ -309,12 +322,16 @@ export default function ProfilePage() {
                       <Crown size={15} strokeWidth={1.75} className={isUltra ? "text-[#7C3AED]" : isPro ? "text-[#6366F1]" : "text-[#B45309]"} />
                     </span>
                     <span className="text-sm font-semibold text-[#111111]">
-                      {subLoading ? "Loading..." : isUltra ? "Ultra" : isPro ? "Pro" : "Free Plan"}
+                      {subLoading ? <SkeletonPulse className="h-4 w-20" /> : isUltra ? "Ultra" : isPro ? "Pro" : "Free Plan"}
                     </span>
                   </div>
                   <p className="mt-1.5 text-xs text-[#6B7280]">
-                    {subLoading ? "" : `${subscription?.credits ?? 50} credits / bulan`}
-                    {isPro && " · Aktif"}
+                    {subLoading || tokenLoading ? (
+                      <SkeletonPulse className="h-3 w-28" />
+                    ) : (
+                      <>{tokenBalance ?? subscription?.credits ?? 50} token tersisa</>
+                    )}
+                    {!subLoading && isPro && " · Aktif"}
                   </p>
                 </div>
                 <div className="w-32 text-right">
@@ -351,9 +368,9 @@ export default function ProfilePage() {
                 <div className="p-4">
                   <Zap size={16} strokeWidth={1.75} className="text-[#6B7280]" />
                   <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">
-                    {subLoading ? <span className="inline-block h-5 w-8 rounded-md bg-[#F3F4F6] animate-pulse" /> : (subscription?.credits ?? "—")}
+                    {tokenLoading ? <SkeletonPulse className="h-6 w-10" /> : (tokenBalance ?? "—")}
                   </p>
-                  <p className="mt-0.5 text-xs text-[#6B7280]">Credits left</p>
+                  <p className="mt-0.5 text-xs text-[#6B7280]">Tokens left</p>
                 </div>
               </SectionCard>
               <SectionCard>
@@ -396,7 +413,7 @@ export default function ProfilePage() {
                       const label = diff < 86400000 ? `Today, ${date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` :
                         diff < 172800000 ? 'Yesterday' : date.toLocaleDateString([], {month:'short', day:'numeric'});
                       return (
-                        <button key={s.id} onClick={() => navigate("/chat", { state: { sessionId: s.id } })}
+                        <button key={s.id} onClick={() => navigate(`/chat/${s.id}`)}
                           className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-[#F7F7F8] transition-colors">
                           <MessageSquare size={14} strokeWidth={1.75} className="shrink-0 text-[#6B7280]" />
                           <div className="min-w-0 flex-1">
