@@ -746,39 +746,34 @@ export const PromptComposer = ({
               {dropdownOpen && (
               <div
                 data-testid="model-dropdown"
-                className="ma-fade-in absolute bottom-full right-0 z-50 mb-2 max-h-[70vh] w-[min(280px,calc(100vw-16px))] overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-1.5 shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
+                className="ma-fade-in absolute bottom-full right-0 z-50 mb-2 max-h-[60vh] w-[min(240px,calc(100vw-16px))] overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-1 shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
               >
                 {drillView === null ? (
                   /* ── Model List ── */
-                  <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 12px)" }}>
+                  <div className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 8px)" }}>
                     {/* Free models */}
-                    <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">Free</p>
+                    <p className="px-2.5 pt-1.5 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#9CA3AF]">Free</p>
                     {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked).map((m) => {
                       const isSelected = !autoMode && model.id === m.id;
-                      const isProLocked = false;
-                      if (false) { // placeholder
-                        return null;
-                      }
                       return (
                         <button
                           key={m.id}
                           type="button"
                           data-testid={`model-dropdown-${m.id}`}
                           onClick={() => selectModel(m)}
-                          className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
+                          className={`ma-focus flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors duration-150 ${
                             isSelected ? "bg-[#F7F7F8]" : "hover:bg-[#FAFAFA]"
                           }`}
                         >
-                          <ModelIcon model={m} size={26} />
+                          <ModelIcon model={m} size={22} />
                           <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="flex items-center gap-1.5">
-                              <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                              {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
+                            <span className="flex items-center gap-1">
+                              <span className="truncate text-[13px] font-medium text-[#111111]">{m.name}</span>
+                              {isSelected && <Check size={12} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
                             </span>
-                            <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
                           </span>
-                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[9px] font-semibold text-[#B45309]">
+                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                             {m.credits}
                           </span>
                         </button>
@@ -801,75 +796,48 @@ export const PromptComposer = ({
                       const isProLocked = (m.requiresPro || m.isExpensive) && !isPro;
                       if (m.locked && !m.requiresPro) {
                         return (
-                          <Link
-                            key={m.id}
-                            to={m.lockedHref || "/introducing-opus"}
+                          <Link key={m.id} to={m.lockedHref || "/introducing-opus"}
                             data-testid={`model-dropdown-${m.id}`}
                             onClick={() => setDropdownOpen(false)}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-60"
-                          >
-                            <ModelIcon model={m} size={26} />
-                            <span className="flex min-w-0 flex-1 flex-col">
-                              <span className="flex items-center gap-1.5">
-                                <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                                <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
-                              </span>
-                              <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
-                            </span>
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]">
-                              Soon
-                            </span>
+                            className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[#FAFAFA] opacity-60">
+                            <ModelIcon model={m} size={22} />
+                            <span className="truncate text-[13px] font-medium text-[#111111] flex-1">{m.name}</span>
+                            <Lock size={10} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                            <span className="shrink-0 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[9px] font-semibold text-[#B45309]">Soon</span>
                           </Link>
                         );
                       }
                       if (isProLocked) {
                         return (
-                          <Link
-                            key={m.id}
-                            to="/pricing"
+                          <Link key={m.id} to="/pricing"
                             data-testid={`model-dropdown-${m.id}`}
                             onClick={() => setDropdownOpen(false)}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-50"
-                          >
-                            <ModelIcon model={m} size={26} />
-                            <span className="flex min-w-0 flex-1 flex-col">
-                              <span className="flex items-center gap-1.5">
-                                <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                                <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
-                              </span>
-                              <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
-                            </span>
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-semibold text-[#6366F1]">
-                              Pro
-                            </span>
+                            className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[#FAFAFA] opacity-60">
+                            <ModelIcon model={m} size={22} />
+                            <span className="truncate text-[13px] font-medium text-[#111111] flex-1">{m.name}</span>
+                            <Lock size={10} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                            <span className="shrink-0 rounded-full bg-[#EEF2FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#6366F1]">Pro</span>
                           </Link>
                         );
                       }
                       return (
-                        <button
-                          key={m.id}
-                          type="button"
+                        <button key={m.id} type="button"
                           data-testid={`model-dropdown-${m.id}`}
                           onClick={() => selectModel(m)}
-                          className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
-                            isSelected
-                              ? "bg-[#F7F7F8]"
-                              : "hover:bg-[#FAFAFA]"
+                          className={`ma-focus flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors duration-150 ${
+                            isSelected ? "bg-[#F7F7F8]" : "hover:bg-[#FAFAFA]"
                           }`}
                         >
-                          <ModelIcon model={m} size={26} />
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="flex items-center gap-1.5">
-                              <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
-                              {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
-                            </span>
-                            <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                          <ModelIcon model={m} size={22} />
+                          <span className="flex min-w-0 flex-1 items-center gap-1">
+                            <span className="truncate text-[13px] font-medium text-[#111111]">{m.name}</span>
+                            {isSelected && <Check size={12} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
                           </span>
-                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[9px] font-semibold text-[#B45309]">
+                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                             {m.credits}
                           </span>
-                          <ChevronRight size={14} strokeWidth={1.75} className="shrink-0 text-[#9CA3AF]" />
+                          <ChevronRight size={12} strokeWidth={1.75} className="shrink-0 text-[#9CA3AF]" />
                         </button>
                       );
                     })}
