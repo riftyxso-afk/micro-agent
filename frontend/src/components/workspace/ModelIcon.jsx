@@ -29,6 +29,8 @@ const MODEL_ICON_SRC = {
   "glm-5": "/svg/zai.svg",
   "flux-2-klein-4b": "/svg/flux.svg",
   "minimax-m3": "/svg/minimax-color.svg",
+  "minimax-m2-5": "/svg/minimax-color.svg",
+  "gemini-2-5-flash": "/svg/gemini.svg",
 };
 
 export const ModelIcon = ({ model, size = 24 }) => {

@@ -117,6 +117,8 @@ MODEL_ID_TO_PROVIDER = {
     "claude-sonnet-4-5-1m": "claude-sonnet-4.5-1m",
     "deepseek-v4-flash": "deepseek-v4-flash",
     "glm-5": "glm-5",
+    "gemini-2-5-flash": "gemini-2.5-flash",
+    "minimax-m2-5": "minimax-m2.5",
     "claude-opus-4-6": "claude-opus-4.6",
     "claude-sonnet-4-6": "claude-sonnet-4.6",
     "claude-opus-4-8": "claude-opus-4.8",
@@ -127,6 +129,148 @@ MODEL_ID_TO_PROVIDER = {
 IMAGE_MODEL_ID = "flux-2-klein-4b"
 DEFAULT_MODEL_ID = "deepseek-v4-flash"
 PROVIDER_NAME = "AIMurah"
+
+# ── Token cost per model ────────────────────────────────────────────────────────
+MODEL_TOKEN_COST = {
+    # Free models
+    "claude-sonnet-4.5":    2,
+    "claude-sonnet-4.5-1m": 2,
+    "deepseek-v4-flash":    1,
+    "glm-5":                1,
+    "minimax-m2.5":         1,
+    "gemini-2.5-flash":     2,
+    "open-agentic":         1,
+    "minimax-m2.1":         1,
+    # Pro & Ultra models
+    "claude-opus-4.6":      5,
+    "claude-sonnet-4.6":    2,
+    "claude-opus-4.7":      5,
+    "claude-opus-4.8":      8,
+    "kimi-k2.6":            2,
+    "minimax-m3":           4,
+    "gemini-2.5-pro":       5,
+    "DeepSeek-V4-Pro":      2,
+    "gemini-3.1-pro":       6,
+    "gpt-5.4":              8,
+    "gpt-5.2":              6,
+    "flux-2-klein-4b":      2,
+}
+
+# Also map frontend model IDs (with hyphens) to costs
+_TOKEN_COST_ALIASES = {
+    "claude-sonnet-4-5-1m": 2,
+    "gemini-2-5-flash":     2,
+    "kimi-k2.6":            2,
+    "deepseek-v4-flash":    1,
+    "glm-5":                1,
+    "minimax-m2-5":         1,
+    "claude-opus-4-6":      5,
+    "claude-sonnet-4-6":    2,
+    "claude-opus-4-7":      5,
+    "claude-opus-4-8":      8,
+    "minimax-m3":           4,
+    "flux-2-klein-4b":      2,
+}
+
+
+def get_token_cost(model_id: str) -> int:
+    """Return token cost for a model. Tries exact match first, then alias, default 1."""
+    if not model_id:
+        return 1
+    if model_id in MODEL_TOKEN_COST:
+        return MODEL_TOKEN_COST[model_id]
+    return _TOKEN_COST_ALIASES.get(model_id, 1)
+
+
+async def get_user_balance(user_id: str) -> int:
+    """Get user token balance from Supabase user_credits table."""
+    if not supa or not user_id:
+        return 0
+    try:
+        res = supa.table("user_credits").select("balance").eq("user_id", user_id).single().execute()
+        return res.data["balance"] if res.data else 0
+    except Exception:
+        return 0
+
+
+async def deduct_token(user_id: str, model_id: str) -> dict:
+    """Deduct tokens for a model usage. Returns {success, cost, balance, ...}."""
+    if not user_id:
+        return {"success": True, "cost": 0, "balance": 0, "reason": "guest"}
+
+    cost = get_token_cost(model_id)
+    balance = await get_user_balance(user_id)
+
+    # Auto-seed 50 tokens for first-time users
+    if balance == 0 and supa:
+        try:
+            existing = supa.table("user_credits").select("user_id").eq("user_id", user_id).execute()
+            if not existing.data:
+                supa.table("user_credits").insert({
+                    "user_id": user_id,
+                    "balance": 50,
+                    "plan": "free",
+                }).execute()
+                supa.table("credit_transactions").insert({
+                    "user_id": user_id,
+                    "amount": 50,
+                    "type": "bonus",
+                    "model": None,
+                }).execute()
+                balance = 50
+                logger.info("Auto-seeded 50 tokens for user %s", user_id)
+        except Exception as exc:
+            logger.warning("Auto-seed failed: %s", exc)
+
+    if balance < cost:
+        return {
+            "success": False,
+            "reason": "insufficient_tokens",
+            "balance": balance,
+            "required": cost,
+        }
+
+    new_balance = balance - cost
+
+    try:
+        supa.table("user_credits").upsert({
+            "user_id": user_id,
+            "balance": new_balance,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="user_id").execute()
+
+        supa.table("credit_transactions").insert({
+            "user_id": user_id,
+            "amount": -cost,
+            "type": "usage",
+            "model": model_id,
+        }).execute()
+    except Exception as exc:
+        logger.warning("Token deduct DB error: %s", exc)
+
+    return {"success": True, "cost": cost, "balance": new_balance}
+
+
+async def refund_token(user_id: str, model_id: str, cost: int) -> None:
+    """Refund tokens on error (e.g. provider failure)."""
+    if not user_id or not supa or cost <= 0:
+        return
+    try:
+        balance = await get_user_balance(user_id)
+        new_balance = balance + cost
+        supa.table("user_credits").upsert({
+            "user_id": user_id,
+            "balance": new_balance,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="user_id").execute()
+        supa.table("credit_transactions").insert({
+            "user_id": user_id,
+            "amount": cost,
+            "type": "refund",
+            "model": model_id,
+        }).execute()
+    except Exception as exc:
+        logger.warning("Token refund DB error: %s", exc)
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_PROVIDER_ERROR_CHARS = 800
 FIRECRAWL_BASE_URL = "https://api.firecrawl.dev"
@@ -170,6 +314,7 @@ class ChatStreamRequest(BaseModel):
     search_mode_prompt: str = ""
     skill_slug: Optional[str] = None
     effort_level: str = "low"
+    user_id: Optional[str] = None
 
     @field_validator("model_id", "room", mode="before")
     @classmethod
@@ -1168,6 +1313,73 @@ async def verify_subscription(order_id: str, request: Request):
     return JSONResponse({"status": "pending", "plan": plan})
 
 
+# ── Token credits ──────────────────────────────────────────────────────────────
+
+@api_router.get("/credits/{user_id}")
+async def get_credits(user_id: str):
+    """Get user token balance."""
+    balance = await get_user_balance(user_id)
+    return JSONResponse({
+        "balance": balance,
+        "is_low": balance <= 5,
+    })
+
+
+@api_router.post("/credits/seed")
+async def seed_credits(request: Request):
+    """Seed initial token balance for a user (free: 50 tokens)."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        existing = supa.table("user_credits").select("user_id").eq("user_id", uid).execute()
+        if existing.data:
+            return JSONResponse({"message": "Already seeded", "balance": await get_user_balance(uid)})
+        supa.table("user_credits").insert({
+            "user_id": uid,
+            "balance": 50,
+            "plan": "free",
+        }).execute()
+        supa.table("credit_transactions").insert({
+            "user_id": uid,
+            "amount": 50,
+            "type": "bonus",
+            "model": None,
+        }).execute()
+        return JSONResponse({"message": "Seeded 50 tokens", "balance": 50})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@api_router.post("/credits/topup")
+async def topup_credits(request: Request):
+    """Top up tokens (admin or webhook). body: {user_id, amount, type}"""
+    if not supa: return _no_supa()
+    body = await request.json()
+    target_uid = body.get("user_id")
+    amount = int(body.get("amount", 0))
+    tx_type = body.get("type", "topup")
+    if not target_uid or amount <= 0:
+        return JSONResponse({"error": "user_id and positive amount required"}, status_code=400)
+    try:
+        balance = await get_user_balance(target_uid)
+        new_balance = balance + amount
+        supa.table("user_credits").upsert({
+            "user_id": target_uid,
+            "balance": new_balance,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="user_id").execute()
+        supa.table("credit_transactions").insert({
+            "user_id": target_uid,
+            "amount": amount,
+            "type": tx_type,
+            "model": None,
+        }).execute()
+        return JSONResponse({"balance": new_balance})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 # ── Skill installs per user ─────────────────────────────────────────────────────────────
 
 @api_router.get("/user/skills")
@@ -1756,6 +1968,7 @@ def generate_docx(content: str, title: str) -> bytes:
 
 class ImageGenerateRequest(BaseModel):
     prompt: str
+    user_id: Optional[str] = None
 
     @field_validator("prompt")
     @classmethod
@@ -1817,12 +2030,184 @@ async def generate_image(req: ImageGenerateRequest):
             if not image_url_result.startswith("http"):
                 image_url_result = f"data:image/png;base64,{image_url_result}"
 
-            return JSONResponse({"success": True, "image_url": image_url_result, "prompt": req.prompt})
+            # Save to Supabase Storage + DB if user_id provided
+            saved_image = None
+            if req.user_id and supa:
+                try:
+                    img_bytes = None
+                    ext = "png"
+                    content_type = "image/png"
+
+                    if image_url_result.startswith("http"):
+                        # Download image from provider
+                        async with httpx.AsyncClient(timeout=60) as dl_client:
+                            img_resp = await dl_client.get(image_url_result)
+                        if img_resp.status_code == 200:
+                            img_bytes = img_resp.content
+                            content_type = img_resp.headers.get("content-type", "image/png")
+                            if "jpeg" in content_type or "jpg" in content_type:
+                                ext = "jpg"
+                            elif "webp" in content_type:
+                                ext = "webp"
+                        else:
+                            logger.warning("Failed to download generated image: status %s", img_resp.status_code)
+                    else:
+                        # b64_json case — decode inline
+                        b64_part = image_url_result.split(",", 1)[-1] if "," in image_url_result else image_url_result
+                        import base64
+                        img_bytes = base64.b64decode(b64_part)
+                        ext = "png"
+                        content_type = "image/png"
+
+                    if img_bytes:
+                        # Upload to Supabase Storage
+                        storage_path = f"{req.user_id}/generated/{uuid.uuid4().hex[:12]}.{ext}"
+                        upload_res = supa.storage.from_("chat-files").upload(
+                            storage_path, img_bytes,
+                            {"content-type": content_type, "cacheControl": "3600"}
+                        )
+                        upload_error = getattr(upload_res, "error", None)
+                        if upload_error:
+                            logger.warning("Storage upload error: %s", upload_error)
+                        else:
+                            url_data = supa.storage.from_("chat-files").get_public_url(storage_path)
+                            public_url = image_url_result  # fallback
+                            if isinstance(url_data, dict):
+                                public_url = url_data.get("publicUrl", url_data.get("public_url", image_url_result))
+                            elif hasattr(url_data, "public_url"):
+                                public_url = url_data.public_url
+
+                            # Save metadata to DB
+                            db_res = supa.table("generated_images").insert({
+                                "user_id": req.user_id,
+                                "prompt": req.prompt,
+                                "image_url": public_url,
+                                "storage_path": storage_path,
+                                "model": IMAGE_MODEL_ID,
+                            }).execute()
+                            if db_res.data:
+                                saved_image = db_res.data[0]
+                                logger.info("Image saved to gallery: %s", saved_image.get("id"))
+                            else:
+                                logger.warning("DB insert returned no data: %s", getattr(db_res, "error", "unknown"))
+                except Exception as exc:
+                    logger.warning("Failed to save generated image: %s", exc, exc_info=True)
+
+            return JSONResponse({
+                "success": True,
+                "image_url": image_url_result,
+                "prompt": req.prompt,
+                "saved_image": saved_image,
+            })
     except httpx.TimeoutException:
         return JSONResponse({"error": "Request timeout saat generate gambar"}, status_code=504)
     except Exception as exc:
         logger.exception("Image generation failed")
         return JSONResponse({"error": f"Gagal generate gambar: {exc}"}, status_code=500)
+
+
+# ── Generated Images Gallery ───────────────────────────────────────────────────
+
+@api_router.get("/images")
+async def list_images(request: Request):
+    """List all generated images for the authenticated user."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        res = supa.table("generated_images") \
+            .select("*") \
+            .eq("user_id", uid) \
+            .order("created_at", desc=True) \
+            .limit(100) \
+            .execute()
+        return JSONResponse({"images": res.data or []})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@api_router.delete("/images/{image_id}")
+async def delete_image(image_id: str, request: Request):
+    """Delete a generated image (from Storage + DB)."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        # Get image metadata
+        res = supa.table("generated_images").select("storage_path").eq("id", image_id).eq("user_id", uid).single().execute()
+        if not res.data:
+            return JSONResponse({"error": "Image not found"}, status_code=404)
+        # Delete from Storage
+        storage_path = res.data.get("storage_path")
+        if storage_path:
+            supa.storage.from_("chat-files").remove([storage_path])
+        # Delete from DB
+        supa.table("generated_images").delete().eq("id", image_id).execute()
+        return JSONResponse({"message": "Image deleted"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Auto-setup: create missing tables ─────────────────────────────────────────
+
+@api_router.post("/setup")
+async def setup_database():
+    """Create required Supabase tables if they don't exist. Run once."""
+    if not supa: return _no_supa()
+    results = {}
+
+    SQL_STATEMENTS = {
+        "user_credits": """
+            CREATE TABLE IF NOT EXISTS user_credits (
+                user_id TEXT PRIMARY KEY,
+                balance INTEGER DEFAULT 0,
+                plan TEXT DEFAULT 'free',
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """,
+        "credit_transactions": """
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                model TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id ON credit_transactions(user_id);
+        """,
+        "generated_images": """
+            CREATE TABLE IF NOT EXISTS generated_images (
+                id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                image_url TEXT NOT NULL,
+                storage_path TEXT,
+                model TEXT DEFAULT 'flux-2-klein-4b',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_generated_images_user_id ON generated_images(user_id);
+        """,
+    }
+
+    for table_name, sql in SQL_STATEMENTS.items():
+        try:
+            # Use Supabase RPC to run raw SQL (requires a function in Supabase)
+            # Fallback: try to select from the table to check if it exists
+            res = supa.table(table_name).select("*").limit(1).execute()
+            results[table_name] = "exists"
+        except Exception as e:
+            error_msg = str(e)
+            if "does not exist" in error_msg or "relation" in error_msg:
+                results[table_name] = f"missing — run SQL manually in Supabase Editor"
+            else:
+                results[table_name] = f"error: {error_msg}"
+
+    return JSONResponse({
+        "message": "Setup check complete",
+        "tables": results,
+        "sql": SQL_STATEMENTS,
+    })
 
 
 @api_router.post("/generate-document")
@@ -2173,6 +2558,22 @@ async def get_status_checks():
 
 
 async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]:
+    # ── Token check & deduct BEFORE any AI call ──────────────────────────────
+    model_id_for_cost = payload.model_id or DEFAULT_MODEL_ID
+    token_cost = get_token_cost(model_id_for_cost)
+    token_deduction = {"success": True, "cost": 0, "balance": 0}
+
+    if payload.user_id:
+        token_deduction = await deduct_token(payload.user_id, model_id_for_cost)
+        if not token_deduction["success"]:
+            yield sse("error", {
+                "message": f"Token tidak cukup. Butuh {token_deduction['required']} token, sisa {token_deduction['balance']}.",
+                "error_type": "insufficient_tokens",
+                "balance": token_deduction["balance"],
+                "required": token_deduction["required"],
+            })
+            return
+
     # Skill loading phase — emit real event before anything else
     if payload.skill_slug:
         skill_name = payload.skill_slug.replace("-", " ").title()
@@ -2251,8 +2652,26 @@ async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]
     # so model focuses entirely on synthesizing web context first.
     # Reasoning is still sent to provider but web context is always fully injected first.
     # (web_context is already built before stream_provider is called — order is correct)
+    has_error = False
     for event in stream_provider(payload, web_context=web_context):
+        # Inject token info into meta event
+        if '"type":"meta"' in event or '"type": "meta"' in event:
+            try:
+                payload_str = event.split("data: ", 1)[1] if "data: " in event else ""
+                meta = json.loads(payload_str.strip())
+                meta["tokens_used"] = token_deduction.get("cost", 0)
+                meta["tokens_left"] = token_deduction.get("balance", 0)
+                event = f"data: {json.dumps(meta)}\n\n"
+            except (json.JSONDecodeError, IndexError):
+                pass
+        # Track errors for refund
+        if '"error"' in event:
+            has_error = True
         yield event
+
+    # Refund tokens on provider error (user shouldn't pay for failed requests)
+    if has_error and token_deduction.get("success") and token_deduction.get("cost", 0) > 0:
+        await refund_token(payload.user_id, model_id_for_cost, token_deduction["cost"])
 
 
 # ── Improve Prompt ─────────────────────────────────────────────────────────

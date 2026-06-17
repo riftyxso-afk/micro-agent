@@ -46,7 +46,7 @@ export const HistoryDialog = ({ open, onOpenChange }) => {
   const openChat = (session) => {
     onOpenChange(false);
     setQuery("");
-    navigate("/chat", { state: { sessionId: session.id, modelId: session.model_id || DEFAULT_MODEL_ID } });
+    navigate(`/chat/${session.id}`);
   };
 
   const formatDate = (iso) => {

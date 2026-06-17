@@ -68,11 +68,13 @@ export async function fetchSessions() {
   return data || [];
 }
 
-export async function createSession({ title = "New Chat", model_id = "", room = "" } = {}) {
+export async function createSession({ title = "New Chat", model_id = "", room = "", user_id = null } = {}) {
   if (!supabase) return null;
+  const row = { title, model_id, room };
+  if (user_id) row.user_id = user_id;
   const { data, error } = await supabase
     .from("sessions")
-    .insert({ title, model_id, room })
+    .insert(row)
     .select()
     .single();
   if (error) throw error;

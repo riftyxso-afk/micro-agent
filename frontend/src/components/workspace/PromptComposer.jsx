@@ -182,6 +182,7 @@ export const PromptComposer = ({
   onWebSearchToggle,
   reasoningEnabled,
   onReasoningToggle,
+  tokenBalance = null,
 }) => {
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
@@ -738,6 +739,17 @@ export const PromptComposer = ({
                 <Gauge size={9} strokeWidth={2} />
                 {EFFORT_LEVELS.find((e) => e.id === effortLevel)?.badge || "Low"}
               </span>
+              {/* Token balance badge — inside model selector */}
+              {tokenBalance !== null && (
+                <span className={`hidden items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold sm:inline-flex ${
+                  tokenBalance <= 5
+                    ? "bg-[#FEF2F2] text-[#EF4444] animate-pulse"
+                    : "bg-[#F3F4F6] text-[#6B7280]"
+                }`}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
+                  {tokenBalance}
+                </span>
+              )}
               <ChevronDown size={14} strokeWidth={2} className={`hidden text-[#9CA3AF] transition-transform duration-150 sm:block ${dropdownOpen ? "rotate-180" : ""}`} />
               {/* Mobile: just chevron down */}
               <ChevronDown size={13} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 sm:hidden ${dropdownOpen ? "rotate-180" : ""}`} />
@@ -753,7 +765,7 @@ export const PromptComposer = ({
                   <div className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 8px)" }}>
                     {/* Free models */}
                     <p className="px-2.5 pt-1.5 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#9CA3AF]">Free</p>
-                    {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked).map((m) => {
+                    {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked && !m.maintenance).map((m) => {
                       const isSelected = !autoMode && model.id === m.id;
                       return (
                         <button
@@ -779,6 +791,17 @@ export const PromptComposer = ({
                         </button>
                       );
                     })}
+                    {/* Maintenance models */}
+                    {MODELS.filter(m => m.maintenance).map((m) => (
+                      <div key={m.id}
+                        className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 opacity-50">
+                        <ModelIcon model={m} size={22} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#111111]">{m.name}</span>
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[9px] font-semibold text-[#B45309]">
+                          Maintenance
+                        </span>
+                      </div>
+                    ))}
                     {/* Pro divider — collapsible */}
                     <button type="button" onClick={() => setProSectionOpen(o => !o)}
                       className="ma-focus mx-1 my-1.5 flex w-[calc(100%-8px)] items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-[#F3F4F6] transition-colors">

@@ -24,12 +24,14 @@ import {
   MessageCircle,
   Brain,
   Zap,
+  ImageIcon,
 } from "lucide-react";
 
 export const NAV_ITEMS = [
   { id: "new", label: "New", icon: Plus },
   { id: "history", label: "History", icon: History },
   { id: "projects", label: "Projects", icon: FolderClosed },
+  { id: "images", label: "Images", icon: ImageIcon },
   { id: "more", label: "More", icon: Ellipsis },
 ];
 
@@ -44,11 +46,26 @@ export const AUTO_MODEL = {
   isAuto: true,
 };
 
+// ── Token cost per model (must match backend MODEL_TOKEN_COST) ──────────────
+export const MODEL_TOKEN_COST = {
+  "claude-sonnet-4-5-1m": 2,
+  "deepseek-v4-flash":    1,
+  "glm-5":                1,
+  "gemini-2-5-flash":     2,
+  "minimax-m2-5":         1,
+  "claude-opus-4-6":      5,
+  "claude-sonnet-4-6":    2,
+  "claude-opus-4-8":      8,
+  "kimi-k2.6":            2,
+  "minimax-m3":           4,
+  "flux-2-klein-4b":      2,
+};
+
 export const IMAGE_MODEL = {
   id: "flux-2-klein-4b",
   name: "Flux 2 Klein 4B",
   shortName: "Flux",
-  credits: 1,
+  credits: 2,
   color: "#F97316",
   tag: "Image generation",
   categories: ["image"],
@@ -84,6 +101,26 @@ export const MODELS = [
     categories: ["reasoning", "writing", "coding"],
   },
   {
+    id: "gemini-2-5-flash",
+    name: "Gemini 2.5 Flash Image",
+    shortName: "Gemini",
+    credits: 2,
+    color: "#4285F4",
+    tag: "Google's fast multimodal",
+    categories: ["reasoning", "writing", "coding"],
+    maintenance: true,
+  },
+  {
+    id: "minimax-m2-5",
+    name: "MiniMax M2.5",
+    shortName: "MiniMax",
+    credits: 1,
+    color: "#6366F1",
+    tag: "Fast & efficient",
+    categories: ["reasoning", "writing", "coding"],
+    maintenance: true,
+  },
+  {
     id: "claude-opus-4-6",
     name: "Claude Opus 4.6",
     shortName: "Opus 4.6",
@@ -108,7 +145,7 @@ export const MODELS = [
     id: "claude-opus-4-8",
     name: "Claude Opus 4.8",
     shortName: "Opus 4.8",
-    credits: 5,
+    credits: 8,
     color: "#7C3AED",
     tag: "Most intelligent model — Pro & Ultra only",
     categories: ["reasoning", "writing", "coding"],
@@ -119,19 +156,21 @@ export const MODELS = [
     id: "kimi-k2.6",
     name: "Kimi K2.6",
     shortName: "Kimi",
-    credits: 1,
+    credits: 2,
     color: "#0EA5E9",
-    tag: "Multimodal & long context",
+    tag: "Multimodal & long context — Pro & Ultra",
     categories: ["reasoning", "writing", "coding"],
+    requiresPro: true,
   },
   {
     id: "minimax-m3",
     name: "MiniMax M3",
-    shortName: "MiniMax",
-    credits: 1,
+    shortName: "MiniMax M3",
+    credits: 4,
     color: "#6366F1",
-    tag: "Fast & efficient",
+    tag: "Advanced reasoning — Pro & Ultra",
     categories: ["reasoning", "writing", "coding"],
+    requiresPro: true,
   },
 ];
 

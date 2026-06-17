@@ -49,11 +49,13 @@ export function isImageRequest(text) {
 /**
  * Call /api/generate-image and return { image_url, prompt }.
  */
-export async function generateImage(prompt) {
+export async function generateImage(prompt, userId = null, authToken = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   const res = await fetch(`${API_BASE_URL}/api/generate-image`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    headers,
+    body: JSON.stringify({ prompt, user_id: userId }),
   });
   const data = await res.json();
   if (!res.ok || data.error) {
@@ -173,6 +175,8 @@ export function streamChat({
   searchModePrompt = "",
   skillSlug = null,
   effortLevel = "low",
+  userId = null,
+  authToken = null,
   signal,
   onMeta,
   onStatus,
@@ -193,9 +197,12 @@ export function streamChat({
     searchModePrompt: searchModePrompt ? searchModePrompt.slice(0, 40) + "..." : "off",
   });
 
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
   fetch(`${API_BASE_URL}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       messages,
       model_id: modelId,
@@ -207,6 +214,7 @@ export function streamChat({
       search_mode_prompt: searchModePrompt || "",
       skill_slug: skillSlug || null,
       effort_level: effortLevel,
+      user_id: userId || null,
     }),
     signal,
   })

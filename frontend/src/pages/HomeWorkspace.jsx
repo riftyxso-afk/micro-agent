@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { HistoryDialog } from "@/components/workspace/HistoryDialog";
 import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
 import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS } from "@/lib/workspaceData";
+import { API_BASE_URL } from "@/lib/chatApi";
 
 export default function HomeWorkspace() {
   const navigate = useNavigate();
@@ -34,8 +35,26 @@ export default function HomeWorkspace() {
   const [autoMode, setAutoMode] = useState(initialAutoMode);
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
-  const { user, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount } = useAuth();
+  const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount } = useAuth();
   const { plan, isPro, isUltra } = useSubscription();
+
+  // Fetch token balance
+  const [tokenBalance, setTokenBalance] = useState(null);
+  const fetchTokenBalance = useCallback(async () => {
+    if (!user) { setTokenBalance(null); return; }
+    try {
+      const token = session?.access_token;
+      const res = await fetch(`${API_BASE_URL}/api/credits/${user.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      setTokenBalance(data.balance ?? 0);
+    } catch {
+      setTokenBalance(null);
+    }
+  }, [user, session]);
+
+  useEffect(() => { fetchTokenBalance(); }, [fetchTokenBalance]);
 
   const handleNavChange = (navId) => {
     setActiveNav(navId);
@@ -230,6 +249,7 @@ export default function HomeWorkspace() {
               autoMode={autoMode}
               onModelSelect={handleModelSelect}
               onAutoModeToggle={handleAutoModeToggle}
+              tokenBalance={tokenBalance}
             />
           </motion.div>
 

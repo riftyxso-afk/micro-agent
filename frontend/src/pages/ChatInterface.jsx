@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { createSession, saveMessages, fetchSessions, deleteSession, isSupabaseEnabled, uploadFileToStorage } from "@/lib/supabase";
@@ -17,8 +17,9 @@ import {
   DEFAULT_ROOM,
   QUICK_CHIPS,
   IMAGE_MODEL,
+  MODEL_TOKEN_COST,
 } from "@/lib/workspaceData";
-import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze } from "@/lib/chatApi";
+import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze, API_BASE_URL } from "@/lib/chatApi";
 import { useSubscription } from "@/lib/useSubscription";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
@@ -51,6 +52,7 @@ const toProviderMessages = (messages, nextUserText = null) => {
 export default function ChatInterface() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessionId: urlSessionId } = useParams();
 
   const seed = location.state || null;
 
@@ -80,20 +82,27 @@ export default function ChatInterface() {
   const abortRef = useRef(null);
 
   // Supabase session
-  const { user, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
+  const { user, session, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
 
   const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(urlSessionId || null);
+  const [tokenBalance, setTokenBalance] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(false);
   const savedMsgCountRef = useRef(0);
 
-  // Load existing session from history when navigating from HistoryDialog
+  // Load existing session from URL param or history navigation
   useEffect(() => {
-    const sid = seed?.sessionId;
+    const sid = urlSessionId || seed?.sessionId;
     if (!sid || !user || !isSupabaseEnabled) return;
+    // Don't reload if already loaded this session
+    if (sid === sessionId && messages.length > 0) return;
     setSessionId(sid);
+    setMessages([]);
+    setLoadingSession(true);
+    savedMsgCountRef.current = 0;
     import("@/lib/supabase").then(({ fetchMessages }) => {
       fetchMessages(sid).then((msgs) => {
-        if (!msgs.length) return;
+        if (!msgs.length) { setLoadingSession(false); return; }
         const restored = msgs.map((m) => ({
           id: m.id || nextId(),
           role: m.role,
@@ -109,9 +118,10 @@ export default function ChatInterface() {
         }));
         setMessages(restored);
         savedMsgCountRef.current = restored.length;
-      }).catch(() => {});
+        setLoadingSession(false);
+      }).catch(() => setLoadingSession(false));
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [urlSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync credits from subscription
   useEffect(() => {
@@ -119,6 +129,25 @@ export default function ChatInterface() {
       setCredits(subscription.credits);
     }
   }, [subscription?.credits]);
+
+  // Fetch token balance from backend
+  const fetchTokenBalance = useCallback(async () => {
+    if (!user) { setTokenBalance(null); return; }
+    try {
+      const token = session?.access_token;
+      const res = await fetch(`${API_BASE_URL}/api/credits/${user.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      setTokenBalance(data.balance ?? 0);
+    } catch {
+      setTokenBalance(null);
+    }
+  }, [user, session]);
+
+  useEffect(() => {
+    fetchTokenBalance();
+  }, [fetchTokenBalance]);
 
   const updateMessage = useCallback((id, patch) => {
     setMessages((prev) =>
@@ -178,12 +207,18 @@ export default function ChatInterface() {
         effortLevel,
         reasoning: reasoningAtSend,
         searchModePrompt,
+        userId: user?.id || null,
+        authToken: session?.access_token || null,
         signal: controller.signal,
         onMeta: (meta) => {
           updateMessage(assistantId, {
             providerModel: meta.model,
             status: "connected",
           });
+          // Sync actual balance from server
+          if (meta.tokens_left != null) {
+            setTokenBalance(meta.tokens_left);
+          }
         },
         onStatus: (status) => {
           if (status.phase === "skill_loading" && status.status === "started") {
@@ -337,7 +372,7 @@ export default function ChatInterface() {
             });
           }
           setCredits((c) => c !== null ? Math.max(0, c - cost) : null);
-          if (user) decrementCredits(cost); // sync to backend
+          // Token balance already deducted optimistically in sendMessage; sync from meta if available
           setIsGenerating(false);
           abortRef.current = null;
         },
@@ -347,6 +382,10 @@ export default function ChatInterface() {
             status: "failed",
             error: err.message || "Streaming failed",
           });
+          // Resync balance on error (backend may have refunded)
+          if (err.message?.includes("insufficient_tokens") || err.message?.includes("Token tidak cukup")) {
+            fetchTokenBalance();
+          }
           setIsGenerating(false);
           abortRef.current = null;
           toast("Generation failed", {
@@ -414,14 +453,27 @@ export default function ChatInterface() {
         toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
         return;
       }
+      // Token balance check
+      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+      const isImgReq = isImageRequest(text);
+      const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
+      const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
+      if (tokenBalance !== null && tokenBalance < tokenCost) {
+        toast("Token tidak cukup", {
+          description: `Model ini butuh ${tokenCost} token, kamu punya ${tokenBalance}.`,
+        });
+        return;
+      }
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
         handleFileUploadAnalysis(text, uploadedFiles);
         return;
       }
+      // Optimistic token deduction
+      if (tokenBalance !== null) {
+        setTokenBalance((prev) => prev !== null ? Math.max(0, prev - tokenCost) : prev);
+      }
       const userMsg = { id: nextId(), role: "user", text, webSearch };
-      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
-      const isImgReq = isImageRequest(text);
       // Use explicit searchModeId from composer, fallback to webSearch flag
       const activeModeId = searchModeId && searchModeId !== "off"
         ? searchModeId
@@ -449,7 +501,7 @@ export default function ChatInterface() {
       if (isImgReq) {
         updateMessage(assistantMsg.id, { state: "streaming", status: "generating image..." });
         setIsGenerating(true);
-        generateImage(text)
+        generateImage(text, user?.id || null, session?.access_token || null)
           .then((data) => {
             updateMessage(assistantMsg.id, {
               state: "completed",
@@ -457,6 +509,11 @@ export default function ChatInterface() {
               imageUrl: data.image_url,
               text: `Gambar berhasil digenerate untuk prompt: "${text}"`,
             });
+            if (data.saved_image) {
+              toast("Gambar tersimpan", { description: "Tersimpan ke gallery" });
+            } else if (user) {
+              toast("Gambar belum tersimpan", { description: "Run SQL migration & coba lagi" });
+            }
           })
           .catch((err) => {
             updateMessage(assistantMsg.id, {
@@ -700,8 +757,13 @@ export default function ChatInterface() {
     if (!isSupabaseEnabled || !user || sessionId || messages.length === 0) return;
     const firstUser = messages.find((m) => m.role === "user");
     if (!firstUser) return;
-    createSession({ title: makeTitleTopic(firstUser.text), model_id: model.id, room })
-      .then((sess) => sess && setSessionId(sess.id))
+    createSession({ title: makeTitleTopic(firstUser.text), model_id: model.id, room, user_id: user.id })
+      .then((sess) => {
+        if (sess) {
+          setSessionId(sess.id);
+          window.history.replaceState({}, "", `/chat/${sess.id}`);
+        }
+      })
       .catch(() => {});
   }, [messages, user, sessionId, model, room]);
 
@@ -724,10 +786,9 @@ export default function ChatInterface() {
         m.role === "assistant" &&
         (m.state === "pending" || m.state === "thinking" || m.state === "streaming"),
     );
+    // Resync token balance from server (backend may refund on abort)
     if (generatingMsg) {
-      const stopCost = generatingMsg.model.credits || 0;
-      setCredits((c) => c !== null ? Math.max(0, c - stopCost) : null);
-      if (user && stopCost > 0) decrementCredits(stopCost);
+      fetchTokenBalance();
     }
     setMessages((prev) =>
       prev.map((m) =>
@@ -836,6 +897,10 @@ export default function ChatInterface() {
       navigate("/home");
       return;
     }
+    if (id === "images") {
+      navigate("/gallery");
+      return;
+    }
     setActiveNav(id);
     setActiveDialog(id);
   };
@@ -914,7 +979,51 @@ export default function ChatInterface() {
           )}
         
           <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-4 py-6 sm:gap-4 sm:px-6 sm:py-8">
-            {messages.length === 0 && (
+            {/* Loading session skeleton */}
+            {loadingSession && (
+              <div className="space-y-4 pt-4" data-testid="chat-skeleton">
+                {[0.85, 0.6, 0.75, 0.5, 0.9, 0.4].map((w, i) => (
+                  <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[85%] space-y-2.5 ${i % 2 === 0 ? "items-end" : "items-start"}`}>
+                      {i % 2 !== 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-5 w-5 rounded-lg bg-[#F3F4F6] animate-pulse" />
+                          <div className="h-3 w-16 rounded bg-[#F3F4F6] animate-pulse" />
+                        </div>
+                      )}
+                      <div className={`rounded-2xl ${i % 2 === 0
+                        ? "rounded-br-md bg-[#F0F0F0] px-5 py-3.5"
+                        : "rounded-bl-md border border-[#E5E7EB] bg-white px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.03)]"
+                      }`}>
+                        <div className="space-y-2">
+                          <div className="h-3 rounded bg-[#E5E7EB] animate-pulse" style={{ width: `${w * 100}%` }} />
+                          <div className="h-3 rounded bg-[#E5E7EB] animate-pulse" style={{ width: `${w * 65}%` }} />
+                          {i % 2 !== 0 && i < 4 && (
+                            <div className="h-3 rounded bg-[#E5E7EB] animate-pulse" style={{ width: `${w * 40}%` }} />
+                          )}
+                        </div>
+                      </div>
+                      {i % 2 === 0 && (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <div className="h-2.5 w-10 rounded bg-[#F3F4F6] animate-pulse" />
+                          <div className="h-2.5 w-3 rounded bg-[#F3F4F6] animate-pulse" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-start pl-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#9CA3AF]">
+                    <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    Loading conversation...
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {messages.length === 0 && !loadingSession && (
               <div className="mx-auto mt-[6vh] max-w-sm text-center sm:mt-[10vh]">
                 <p className="text-sm font-medium text-[#6B7280]">Start a conversation</p>
                 <p className="mt-1.5 text-xs text-[#9CA3AF]">
@@ -960,6 +1069,17 @@ export default function ChatInterface() {
 
         <footer className="shrink-0 pt-3 sm:pb-4 md:pb-4" style={{paddingBottom: 'max(32px, env(safe-area-inset-bottom))'}}>        
           <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6" data-testid="chat-composer">
+            {/* Mobile token balance */}
+            {tokenBalance !== null && (
+              <div className={`mb-2 flex items-center justify-center gap-1.5 rounded-full py-1 text-[11px] font-semibold sm:hidden ${
+                tokenBalance <= 5
+                  ? "bg-[#FEF2F2] text-[#EF4444]"
+                  : "text-[#9CA3AF]"
+              }`}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
+                {tokenBalance} token tersisa
+              </div>
+            )}
 
             <PromptComposer
               compact
@@ -991,6 +1111,7 @@ export default function ChatInterface() {
               initialSearchMode={seed?.searchModeId || "off"}
               initialSkill={seed?.skillSlug ? { slug: seed.skillSlug, name: seed.skillSlug, icon: "🧠" } : null}
               initialEffortLevel={seed?.effortLevel || "low"}
+              tokenBalance={tokenBalance}
             />
             <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
               MicroAgent can make mistakes. Always double-check important information.

@@ -13,6 +13,8 @@ import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
 import EmailVerificationPage from "@/pages/EmailVerificationPage";
+import HelpPage from "@/pages/HelpPage";
+import ImageGalleryPage from "@/pages/ImageGalleryPage";
 import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
@@ -24,6 +26,7 @@ function App() {
           <Route path="/" element={<HomeWorkspace />} />
           <Route path="/home" element={<HomeWorkspace />} />
           <Route path="/chat" element={<ChatInterface />} />
+          <Route path="/chat/:sessionId" element={<ChatInterface />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/profile" element={<ProfilePage />} />
@@ -33,6 +36,8 @@ function App() {
           <Route path="/payment" element={<PaymentPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />
           <Route path="/verify" element={<EmailVerificationPage />} />
+          <Route path="/help" element={<HelpPage />} />
+          <Route path="/gallery" element={<ImageGalleryPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster
