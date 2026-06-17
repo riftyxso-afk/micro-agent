@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { useSubscription } from "@/lib/useSubscription";
+import { supabase, isSupabaseEnabled, fetchSessions, fetchMessages } from "@/lib/supabase";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
@@ -52,6 +53,17 @@ export default function ProfilePage() {
   const { user } = useAuth();
   const { plan, isPro, isUltra, subscription, loading: subLoading } = useSubscription();
   const [collapsed, setCollapsed] = useState(false);
+  const [stats, setStats] = useState({ conversations: null });
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user || !isSupabaseEnabled) { setStatsLoading(false); return; }
+    fetchSessions().then(sessions => {
+      setRecentSessions(sessions.slice(0, 5));
+      setStats({ conversations: sessions.length });
+    }).catch(() => {}).finally(() => setStatsLoading(false));
+  }, [user]);
   const [activeDialog, setActiveDialog] = useState(null);
   const [editing, setEditing] = useState(false);
   const [profile, setProfile] = useState({
@@ -326,18 +338,38 @@ export default function ProfilePage() {
           <motion.div {...fadeUp(0.15)} className="mt-5">
             <h2 className="font-heading text-base font-semibold text-[#111111]">Stats</h2>
             <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {STATS.map((stat) => {
-                const Icon = stat.icon;
-                return (
-                  <SectionCard key={stat.label}>
-                    <div className="p-4">
-                      <Icon size={16} strokeWidth={1.75} className="text-[#6B7280]" />
-                      <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">{stat.value}</p>
-                      <p className="mt-0.5 text-xs text-[#6B7280]">{stat.label}</p>
-                    </div>
-                  </SectionCard>
-                );
-              })}
+              <SectionCard>
+                <div className="p-4">
+                  <MessageSquare size={16} strokeWidth={1.75} className="text-[#6B7280]" />
+                  <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">
+                    {statsLoading ? <span className="inline-block h-5 w-8 rounded-md bg-[#F3F4F6] animate-pulse" /> : (stats.conversations ?? "—")}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#6B7280]">Conversations</p>
+                </div>
+              </SectionCard>
+              <SectionCard>
+                <div className="p-4">
+                  <Zap size={16} strokeWidth={1.75} className="text-[#6B7280]" />
+                  <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">
+                    {subLoading ? <span className="inline-block h-5 w-8 rounded-md bg-[#F3F4F6] animate-pulse" /> : (subscription?.credits ?? "—")}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#6B7280]">Credits left</p>
+                </div>
+              </SectionCard>
+              <SectionCard>
+                <div className="p-4">
+                  <Clock size={16} strokeWidth={1.75} className="text-[#6B7280]" />
+                  <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">—</p>
+                  <p className="mt-0.5 text-xs text-[#6B7280]">Hours saved</p>
+                </div>
+              </SectionCard>
+              <SectionCard>
+                <div className="p-4">
+                  <Award size={16} strokeWidth={1.75} className="text-[#6B7280]" />
+                  <p className="mt-2 font-heading text-xl font-semibold text-[#111111]">—</p>
+                  <p className="mt-0.5 text-xs text-[#6B7280]">Streak</p>
+                </div>
+              </SectionCard>
             </div>
           </motion.div>
 
@@ -345,10 +377,38 @@ export default function ProfilePage() {
             <h2 className="font-heading text-base font-semibold text-[#111111]">Recent activity</h2>
             <SectionCard>
               <div className="p-2">
-                <div className="flex flex-col items-center gap-2 py-8 text-center">
-                  <Activity size={18} strokeWidth={1.75} className="text-[#D1D5DB]" />
-                  <p className="text-sm text-[#9CA3AF]">No recent activity</p>
-                </div>
+                {statsLoading ? (
+                  <div className="space-y-2 p-2">
+                    {[1,2,3].map(i => <div key={i} className="h-10 rounded-xl bg-[#F3F4F6] animate-pulse" />)}
+                  </div>
+                ) : recentSessions.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-8 text-center">
+                    <Activity size={18} strokeWidth={1.75} className="text-[#D1D5DB]" />
+                    <p className="text-sm text-[#9CA3AF]">No recent activity</p>
+                    {!user && <p className="text-xs text-[#9CA3AF]">Sign in to see your activity</p>}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#F3F4F6]">
+                    {recentSessions.map((s, i) => {
+                      const date = new Date(s.updated_at);
+                      const now = new Date();
+                      const diff = now - date;
+                      const label = diff < 86400000 ? `Today, ${date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` :
+                        diff < 172800000 ? 'Yesterday' : date.toLocaleDateString([], {month:'short', day:'numeric'});
+                      return (
+                        <button key={s.id} onClick={() => navigate("/chat", { state: { sessionId: s.id } })}
+                          className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-[#F7F7F8] transition-colors">
+                          <MessageSquare size={14} strokeWidth={1.75} className="shrink-0 text-[#6B7280]" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm text-[#374151]">{s.title || "Untitled"}</p>
+                            <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{label}</p>
+                          </div>
+                          <ChevronRight size={13} strokeWidth={1.75} className="shrink-0 text-[#D1D5DB]" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </SectionCard>
           </motion.div>

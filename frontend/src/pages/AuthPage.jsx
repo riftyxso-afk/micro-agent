@@ -43,8 +43,9 @@ export default function AuthPage() {
     setLoading(true);
     try {
       await register(email, password);
-      toast.success("Account created — check your email to verify");
-      setTab("login");
+      // Navigate to verify page with email pre-filled
+      navigate(`/verify?email=${encodeURIComponent(email)}`);
+      toast.success("Kode verifikasi dikirim ke emailmu");
     } catch (err) { toast.error(err.message || "Registration failed"); }
     setLoading(false);
   };

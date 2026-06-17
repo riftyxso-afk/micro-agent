@@ -13,7 +13,13 @@ export const isSupabaseEnabled = !!supabase;
 
 export async function signUp(email, password) {
   if (!supabase) throw new Error("Supabase not configured");
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/verify`,
+    },
+  });
   if (error) throw error;
   return data;
 }

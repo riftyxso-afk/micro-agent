@@ -12,6 +12,7 @@ import SkillsPage from "@/pages/SkillsPage";
 import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
+import EmailVerificationPage from "@/pages/EmailVerificationPage";
 import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/payment" element={<PaymentPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />
+          <Route path="/verify" element={<EmailVerificationPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster

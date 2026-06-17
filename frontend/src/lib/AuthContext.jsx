@@ -42,6 +42,7 @@ export function AuthProvider({ children }) {
 
   const register = async (email, password) => {
     const data = await signUp(email, password);
+    // If email confirmation required, user won't be signed in yet
     return data;
   };
 
