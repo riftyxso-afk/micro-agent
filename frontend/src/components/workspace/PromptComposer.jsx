@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
+import { useSubscription } from "@/lib/useSubscription";
 import {
   Paperclip,
   SlidersHorizontal,
@@ -183,6 +184,7 @@ export const PromptComposer = ({
   onReasoningToggle,
 }) => {
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
+  const { isPro } = useSubscription();
   const [value, setValue] = useState(initialValue);
   const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]); // filenames (non-pro) or { file, preview } objects (pro)
@@ -748,9 +750,49 @@ export const PromptComposer = ({
                 {drillView === null ? (
                   /* ── Model List ── */
                   <div className="overflow-y-auto" style={{ maxHeight: "calc(70vh - 12px)" }}>
-                    {MODELS.map((m) => {
+                    {/* Free models */}
+                    <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">Free</p>
+                    {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked).map((m) => {
                       const isSelected = !autoMode && model.id === m.id;
-                      if (m.locked) {
+                      const isProLocked = false;
+                      if (false) { // placeholder
+                        return null;
+                      }
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          data-testid={`model-dropdown-${m.id}`}
+                          onClick={() => selectModel(m)}
+                          className={`ma-focus flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
+                            isSelected ? "bg-[#F7F7F8]" : "hover:bg-[#FAFAFA]"
+                          }`}
+                        >
+                          <ModelIcon model={m} size={26} />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                              {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0 text-[#111111]" />}
+                            </span>
+                            <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                          </span>
+                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B45309]">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            {m.credits}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {/* Pro divider */}
+                    <div className="mx-2 my-1.5 flex items-center gap-2">
+                      <div className="flex-1 border-t border-[#E5E7EB]" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#6366F1]">Pro &amp; Ultra</span>
+                      <div className="flex-1 border-t border-[#E5E7EB]" />
+                    </div>
+                    {MODELS.filter(m => m.requiresPro || m.isExpensive || m.locked).map((m) => {
+                      const isSelected = !autoMode && model.id === m.id;
+                      const isProLocked = (m.requiresPro || m.isExpensive) && !isPro;
+                      if (m.locked && !m.requiresPro) {
                         return (
                           <Link
                             key={m.id}
@@ -769,6 +811,29 @@ export const PromptComposer = ({
                             </span>
                             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]">
                               Soon
+                            </span>
+                          </Link>
+                        );
+                      }
+                      if (isProLocked) {
+                        return (
+                          <Link
+                            key={m.id}
+                            to="/pricing"
+                            data-testid={`model-dropdown-${m.id}`}
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#FAFAFA] opacity-50"
+                          >
+                            <ModelIcon model={m} size={26} />
+                            <span className="flex min-w-0 flex-1 flex-col">
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-[#111111]">{m.name}</span>
+                                <Lock size={11} strokeWidth={2} className="shrink-0 text-[#9CA3AF]" />
+                              </span>
+                              <span className="truncate text-[11px] text-[#9CA3AF]">{m.tag}</span>
+                            </span>
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-semibold text-[#6366F1]">
+                              Pro
                             </span>
                           </Link>
                         );

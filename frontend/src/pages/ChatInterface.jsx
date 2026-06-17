@@ -781,8 +781,8 @@ export default function ChatInterface() {
       setAutoMode(true);
     } else {
       setAutoMode(false);
-      // Block expensive models for free users
-      if (!isPro && m.isExpensive) {
+      // Block Pro-only models for free users
+      if (!isPro && (m.isExpensive || m.requiresPro)) {
         toast("Model ini membutuhkan plan Pro atau Ultra", {
           description: `${m.name} hanya tersedia di Pro/Ultra. Upgrade sekarang.`,
           action: { label: "Upgrade", onClick: () => navigate("/pricing") },

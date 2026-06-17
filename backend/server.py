@@ -117,6 +117,8 @@ MODEL_ID_TO_PROVIDER = {
     "claude-sonnet-4-5-1m": "claude-sonnet-4.5-1m",
     "deepseek-v4-flash": "deepseek-v4-flash",
     "glm-5": "glm-5",
+    "claude-opus-4-6": "claude-opus-4.6",
+    "claude-sonnet-4-6": "claude-sonnet-4.6",
     "claude-opus-4-8": "claude-opus-4.8",
     "kimi-k2.6": "kimi-k2.6",
     "minimax-m3": "minimax-m3",
@@ -2291,7 +2293,8 @@ async def improve_prompt(req: ImprovePromptRequest):
     if not base_url or not api_key:
         return JSONResponse({"success": False, "error": "Provider belum dikonfigurasi"}, status_code=500)
 
-    model = MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
+    # Use claude-sonnet for improve-prompt (no reasoning phase, reliable output)
+    model = "claude-sonnet-4.6"
     context_text = f"\n\nKonteks percakapan:\n{req.context.strip()}" if req.context.strip() else ""
     user_content = f"Improve this prompt:{context_text}\n\nOriginal: {req.prompt}"
 
@@ -2310,23 +2313,30 @@ async def improve_prompt(req: ImprovePromptRequest):
 
     try:
         improved = ""
+        buf = ""
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", provider_url(base_url), headers=headers_req, json=body) as resp:
                 if resp.status_code >= 400:
                     detail = await resp.aread()
                     return JSONResponse({"success": False, "error": f"Model error {resp.status_code}: {detail[:200].decode(errors='replace')}"}, status_code=500)
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if line.startswith("data:"):
-                        line = line[5:].strip()
-                    if not line or line == "[DONE]":
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                        delta = chunk["choices"][0].get("delta", {})
-                        improved += delta.get("content") or ""
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        pass
+                async for raw_chunk in resp.aiter_bytes():
+                    buf += raw_chunk.decode("utf-8", errors="ignore")
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if line.startswith("data:"):
+                            line = line[5:].strip()
+                        if not line or line == "[DONE]":
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                            delta = chunk["choices"][0].get("delta", {})
+                            # content comes AFTER reasoning_content finishes
+                            c = delta.get("content")
+                            if c and c != "null":
+                                improved += c
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            pass
         return JSONResponse({"success": True, "original": req.prompt, "improved": improved.strip()})
     except Exception as exc:
         logger.exception("Improve prompt failed")
