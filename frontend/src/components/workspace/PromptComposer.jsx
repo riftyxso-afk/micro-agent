@@ -198,6 +198,7 @@ export const PromptComposer = ({
   const [deepResearchMode, setDeepResearchMode] = useState(false);
   const [effortLevel, setEffortLevel] = useState(initialEffortLevel);
   const [drillView, setDrillView] = useState(null); // null = model list, 'effort' = effort + reasoning panel
+  const [proSectionOpen, setProSectionOpen] = useState(false);
   const [modeDropupOpen, setModeDropupOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const deepResearchModeDropup = [modeDropupOpen, setModeDropupOpen];
@@ -783,13 +784,19 @@ export const PromptComposer = ({
                         </button>
                       );
                     })}
-                    {/* Pro divider */}
-                    <div className="mx-2 my-1.5 flex items-center gap-2">
+                    {/* Pro divider — collapsible */}
+                    <button type="button" onClick={() => setProSectionOpen(o => !o)}
+                      className="ma-focus mx-1 my-1.5 flex w-[calc(100%-8px)] items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-[#F3F4F6] transition-colors">
                       <div className="flex-1 border-t border-[#E5E7EB]" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#6366F1]">Pro &amp; Ultra</span>
+                      <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#6366F1]">
+                        Pro &amp; Ultra
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className={`transition-transform ${proSectionOpen ? "rotate-180" : ""}`}>
+                          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                        </svg>
+                      </span>
                       <div className="flex-1 border-t border-[#E5E7EB]" />
-                    </div>
-                    {MODELS.filter(m => m.requiresPro || m.isExpensive || m.locked).map((m) => {
+                    </button>
+                    {proSectionOpen && MODELS.filter(m => m.requiresPro || m.isExpensive || m.locked).map((m) => {
                       const isSelected = !autoMode && model.id === m.id;
                       const isProLocked = (m.requiresPro || m.isExpensive) && !isPro;
                       if (m.locked && !m.requiresPro) {
