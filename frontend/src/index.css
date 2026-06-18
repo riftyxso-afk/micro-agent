@@ -113,3 +113,64 @@ code {
         border-bottom-color: inherit;
     }
 }
+
+/* ── Code Generation Panel ──────────────────────────────────────────────── */
+.code-gen-pre {
+  margin: 0;
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.code-cursor {
+  animation: cursor-blink 0.7s step-end infinite;
+  color: #58a6ff;
+  font-weight: 200;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.code-dot {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.animate-blink {
+  animation: dot-blink 1.4s infinite both;
+}
+
+@keyframes dot-blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Scrollbar for code block */
+.code-gen-pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.code-gen-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-gen-pre::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.code-gen-pre::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}

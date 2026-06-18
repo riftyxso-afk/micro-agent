@@ -27,6 +27,7 @@ import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
 import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { CodeGenerationPanel } from "@/components/chat/CodeGenerationPanel";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -544,28 +545,13 @@ export default function ChatInterface() {
       const isDocReq = DOC_KEYWORDS.some((kw) => text.toLowerCase().includes(kw));
 
       if (isDocReq) {
-        updateMessage(assistantMsg.id, { state: "streaming", status: "generating document..." });
+        // Use streaming code generation panel
+        updateMessage(assistantMsg.id, {
+          state: "streaming",
+          isCodeGeneration: true,
+          codeGenPrompt: text,
+        });
         setIsGenerating(true);
-        aiGenerateDocument(text, user?.id || null, session?.access_token || null, model.id)
-          .then((data) => {
-            if (data.error) throw new Error(data.error);
-            updateMessage(assistantMsg.id, {
-              state: "completed",
-              status: "just now",
-              text: data.message || `Dokumen ${data.filename} berhasil dibuat!`,
-              downloadUrl: data.download_url,
-              downloadFilename: data.filename,
-            });
-          })
-          .catch((err) => {
-            updateMessage(assistantMsg.id, {
-              state: "error",
-              status: "failed",
-              error: err.message || "Gagal generate dokumen",
-            });
-            toast("Gagal generate dokumen", { description: err.message });
-          })
-          .finally(() => setIsGenerating(false));
         return;
       }
 
@@ -1098,6 +1084,34 @@ export default function ChatInterface() {
                         <p className="text-sm text-[#991B1B]">{m.error || "Riset gagal"}</p>
                       </div>
                     )}
+                  </div>
+                </div>
+              ) : m.isCodeGeneration ? (
+                <div key={m.id} className="ma-msg-in flex justify-start">
+                  <div className="w-full max-w-full">
+                    <CodeGenerationPanel
+                      prompt={m.codeGenPrompt}
+                      userId={user?.id || "anonymous"}
+                      onComplete={({ filename, downloadUrl }) => {
+                        updateMessage(m.id, {
+                          state: "completed",
+                          status: "just now",
+                          text: `Dokumen ${filename} berhasil dibuat!`,
+                          downloadUrl,
+                          downloadFilename: filename,
+                        });
+                        setIsGenerating(false);
+                        decrementCredits(model?.credits || 1);
+                      }}
+                      onError={(err) => {
+                        updateMessage(m.id, {
+                          state: "error",
+                          error: err || "Gagal generate dokumen",
+                        });
+                        setIsGenerating(false);
+                        toast("Gagal generate dokumen", { description: err });
+                      }}
+                    />
                   </div>
                 </div>
               ) : (

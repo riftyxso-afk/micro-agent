@@ -3,6 +3,10 @@ import json
 import logging
 import os
 import re
+import subprocess
+import sys
+import tempfile
+import shutil
 import uuid
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
@@ -1466,6 +1470,129 @@ async def topup_credits(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+# ── Promo codes ──────────────────────────────────────────────────────────────
+
+PROMO_CODES = {
+    "WELCOME2026": {"type": "tokens", "amount": 200, "desc": "Bonus 200 token"},
+    "GRATIS100": {"type": "tokens", "amount": 100, "desc": "Bonus 100 token"},
+    "PRO3HARI": {"type": "plan", "plan": "pro", "days": 3, "desc": "Pro gratis 3 hari"},
+    "ULTRA1HARI": {"type": "plan", "plan": "ultra", "days": 1, "desc": "Ultra gratis 1 hari"},
+    "HEMAT50": {"type": "discount", "percent": 50, "desc": "Diskon 50% top up"},
+    "MICROAGENT": {"type": "tokens", "amount": 500, "desc": "Bonus 500 token"},
+}
+
+
+@api_router.post("/promo/validate")
+async def validate_promo(request: Request):
+    """Validate a promo code and return its benefits."""
+    if not supa: return _no_supa()
+    body = await request.json()
+    code = (body.get("code") or "").strip().upper()
+    user_id = body.get("user_id")
+
+    if not code:
+        return JSONResponse({"error": "Kode promo kosong"}, status_code=400)
+
+    promo = PROMO_CODES.get(code)
+    if not promo:
+        return JSONResponse({"error": "Kode promo tidak valid"}, status_code=404)
+
+    # Check if user already used this code
+    if user_id:
+        try:
+            used = supa.table("promo_usage").select("id").eq("user_id", user_id).eq("code", code).execute()
+            if used.data:
+                return JSONResponse({"error": "Kode promo sudah digunakan"}, status_code=400)
+        except Exception:
+            pass  # table might not exist yet
+
+    return JSONResponse({
+        "valid": True,
+        "code": code,
+        "type": promo["type"],
+        "desc": promo["desc"],
+        "amount": promo.get("amount"),
+        "plan": promo.get("plan"),
+        "days": promo.get("days"),
+        "percent": promo.get("percent"),
+    })
+
+
+@api_router.post("/promo/redeem")
+async def redeem_promo(request: Request):
+    """Redeem a promo code — add tokens or activate plan."""
+    if not supa: return _no_supa()
+    body = await request.json()
+    code = (body.get("code") or "").strip().upper()
+    user_id = body.get("user_id")
+
+    if not code or not user_id:
+        return JSONResponse({"error": "code and user_id required"}, status_code=400)
+
+    promo = PROMO_CODES.get(code)
+    if not promo:
+        return JSONResponse({"error": "Kode promo tidak valid"}, status_code=404)
+
+    # Check if already used
+    try:
+        used = supa.table("promo_usage").select("id").eq("user_id", user_id).eq("code", code).execute()
+        if used.data:
+            return JSONResponse({"error": "Kode promo sudah digunakan"}, status_code=400)
+    except Exception:
+        pass
+
+    try:
+        from datetime import timedelta
+
+        if promo["type"] == "tokens":
+            amount = promo["amount"]
+            existing = supa.table("user_credits").select("balance").eq("user_id", user_id).execute()
+            current = existing.data[0]["balance"] if existing.data else 0
+            new_balance = current + amount
+            supa.table("user_credits").upsert({
+                "user_id": user_id,
+                "balance": new_balance,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }, on_conflict="user_id").execute()
+            supa.table("credit_transactions").insert({
+                "user_id": user_id,
+                "amount": amount,
+                "type": "promo",
+                "model": None,
+            }).execute()
+
+        elif promo["type"] == "plan":
+            days = promo["days"]
+            plan = promo["plan"]
+            supa.table("subscriptions").upsert({
+                "user_id": user_id,
+                "plan": plan,
+                "status": "active",
+                "credits": PLAN_CREDITS.get(plan, 50),
+                "billing": "promo",
+                "activated_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(),
+            }, on_conflict="user_id").execute()
+            supa.table("user_credits").upsert({
+                "user_id": user_id,
+                "balance": PLAN_CREDITS.get(plan, 50),
+                "plan": plan,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }, on_conflict="user_id").execute()
+
+        # Record usage
+        supa.table("promo_usage").insert({
+            "user_id": user_id,
+            "code": code,
+            "redeemed_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+
+        return JSONResponse({"success": True, "desc": promo["desc"]})
+    except Exception as e:
+        logger.error(f"Promo redeem error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ── Skill installs per user ─────────────────────────────────────────────────────────────
 
 @api_router.get("/user/skills")
@@ -2418,6 +2545,185 @@ async def ai_generate_doc(request: Request):
     except Exception as e:
         logger.exception("AI document generation failed")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Streaming Document Generation (SSE) ────────────────────────────────────────
+
+DOC_GEN_SYSTEM = """You are a Python code generator for documents.
+Generate complete runnable Python code to create the requested document.
+Use: reportlab (PDF), openpyxl (Excel), python-docx (Word).
+Save file with descriptive Indonesian filename in current directory.
+End with exactly: OUTPUT_FILE: <filename.ext>
+Output ONLY the python code block and OUTPUT_FILE line. Nothing else."""
+
+TOPUP_AMOUNT_TOKENS = {
+    10000: 100,
+    40000: 500,
+    100000: 1500,
+}
+
+
+class GenerateStreamRequest(BaseModel):
+    prompt: str
+    user_id: str = "anonymous"
+    model_id: str = "claude-sonnet-4-6"
+
+
+@api_router.post("/generate-document-stream")
+async def generate_document_stream_endpoint(request: Request):
+    """Stream document generation with live code output via SSE."""
+    from fastapi.responses import StreamingResponse
+    body = await request.json()
+    prompt = body.get("prompt", "")
+    user_id = body.get("user_id", "anonymous")
+
+    if not prompt:
+        return JSONResponse({"error": "prompt required"}, status_code=400)
+
+    return StreamingResponse(
+        _stream_doc_generation(prompt, user_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+
+
+async def _stream_doc_generation(prompt: str, user_id: str):
+    """Generator that streams SSE events for document generation."""
+    import httpx
+    import re as _re
+
+    full_text = ""
+    full_code = ""
+    in_code_block = False
+
+    # Phase 1: Stream code generation
+    yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Generating code...'})}\n\n"
+
+    # Use OpenAI-compatible API (works with AIMurah / DeepSeek / Claude)
+    clean_base = OPENAI_BASE_URL.rstrip("/")
+    if clean_base.endswith("/chat/completions"):
+        clean_base = clean_base[:-len("/chat/completions")]
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+            {"role": "system", "content": DOC_GEN_SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 4096,
+        "temperature": 0.3,
+        "stream": True,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream("POST", f"{clean_base}/chat/completions", headers=headers, json=payload) as resp:
+                if resp.status_code >= 400:
+                    error_body = await resp.aread()
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'AI error {resp.status_code}: {error_body[:300].decode()}'})}\n\n"
+                    return
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        text_chunk = delta.get("content", "")
+                        if not text_chunk:
+                            continue
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+
+                    full_text += text_chunk
+
+                    # Detect code block
+                    if "```python" in full_text and not in_code_block:
+                        in_code_block = True
+
+                    if in_code_block:
+                        code_match = _re.search(r"```python\n(.*)", full_text, _re.DOTALL)
+                        if code_match:
+                            code_so_far = code_match.group(1).split("```")[0]
+                            full_code = code_so_far
+
+                    yield f"data: {json.dumps({'type': 'code_chunk', 'code': text_chunk})}\n\n"
+                    await asyncio.sleep(0)
+
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Connection error: {str(e)}'})}\n\n"
+        return
+
+    # Extract OUTPUT_FILE
+    file_match = _re.search(r"OUTPUT_FILE:\s*(\S+)", full_text)
+    if not file_match:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'OUTPUT_FILE not found in AI response'})}\n\n"
+        return
+
+    output_file = file_match.group(1).strip("`\"'")
+
+    # Phase 2: Execute the code
+    yield f"data: {json.dumps({'type': 'phase', 'phase': 'executing', 'message': 'Executing code...'})}\n\n"
+    await asyncio.sleep(0.3)
+
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="docgen_")
+        script_path = os.path.join(tmp_dir, f"gen_{uuid.uuid4().hex[:8]}.py")
+        file_path = os.path.join(tmp_dir, output_file)
+
+        patched_code = f'import os\nos.chdir(r"{tmp_dir}")\n\n{full_code}'
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(patched_code)
+
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode != 0:
+            yield f"data: {json.dumps({'type': 'error', 'message': result.stderr[:500]})}\n\n"
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        if not os.path.exists(file_path):
+            yield f"data: {json.dumps({'type': 'error', 'message': f'File {output_file} tidak ditemukan'})}\n\n"
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        # Register file in Supabase
+        file_id = uuid.uuid4().hex
+        if supa:
+            try:
+                supa.table("generated_files").insert({
+                    "id": file_id,
+                    "user_id": user_id,
+                    "filename": output_file,
+                    "file_path": file_path,
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to register generated file: {e}")
+
+        # Schedule cleanup after 10 minutes
+        asyncio.create_task(_cleanup(file_id, tmp_dir, delay=600))
+
+        # Phase 3: Done
+        yield f"data: {json.dumps({'type': 'complete', 'file_id': file_id, 'filename': output_file, 'download_url': f'/api/download/{file_id}/{output_file}'})}\n\n"
+
+    except subprocess.TimeoutExpired:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Eksekusi timeout (>30 detik)'})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
 
 @api_router.get("/download/{file_id}/{filename}")

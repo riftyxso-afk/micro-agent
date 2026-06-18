@@ -185,6 +185,8 @@ export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState(null);
   const [selectedPkg, setSelectedPkg] = useState("popular");
   const [topUpProcessing, setTopUpProcessing] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoStatus, setPromoStatus] = useState(null); // null | "checking" | {valid, desc, ...} | {error}
   const { user } = useAuth();
   const { format, currency, loading: currencyLoading } = useCurrency();
 
@@ -288,6 +290,64 @@ export default function PricingPage() {
     } catch (err) {
       toast.error("Gagal memulai pembayaran", { description: err.message });
       setTopUpProcessing(false);
+    }
+  };
+
+  const handleValidatePromo = async () => {
+    if (!promoCode.trim()) return;
+    setPromoStatus("checking");
+    try {
+      const session = await (
+        await import("@/lib/supabase")
+      ).supabase?.auth.getSession();
+      const authToken = session?.data?.session?.access_token;
+      const res = await fetch(`${API_BASE_URL}/api/promo/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ code: promoCode, user_id: user?.id }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setPromoStatus(data);
+      } else {
+        setPromoStatus({ error: data.error || "Kode tidak valid" });
+      }
+    } catch (err) {
+      setPromoStatus({ error: "Gagal memvalidasi kode" });
+    }
+  };
+
+  const handleRedeemPromo = async () => {
+    if (!user) {
+      navigate("/auth", { state: { from: "/pricing" } });
+      return;
+    }
+    try {
+      const session = await (
+        await import("@/lib/supabase")
+      ).supabase?.auth.getSession();
+      const authToken = session?.data?.session?.access_token;
+      const res = await fetch(`${API_BASE_URL}/api/promo/redeem`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ code: promoCode, user_id: user.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Promo berhasil!", { description: data.desc });
+        setPromoCode("");
+        setPromoStatus(null);
+      } else {
+        toast.error(data.error || "Gagal redeem promo");
+      }
+    } catch (err) {
+      toast.error("Gagal redeem promo");
     }
   };
 
@@ -576,6 +636,45 @@ export default function PricingPage() {
               <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
                 Pembayaran via Pakasir · Token masuk otomatis
               </p>
+
+              {/* Promo Code */}
+              <div className="mt-4 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Kode Promo</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoStatus(null); }}
+                    placeholder="Masukkan kode promo"
+                    className="ma-focus flex-1 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111111] placeholder:text-[#9CA3AF] transition-colors focus:border-[#6366F1] focus:outline-none"
+                  />
+                  {promoStatus && promoStatus.valid ? (
+                    <button
+                      onClick={handleRedeemPromo}
+                      className="ma-focus rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 active:scale-[0.98]"
+                    >
+                      Pakai
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleValidatePromo}
+                      disabled={!promoCode.trim() || promoStatus === "checking"}
+                      className="ma-focus rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#111111] transition-colors hover:bg-[#F3F4F6] disabled:opacity-50"
+                    >
+                      {promoStatus === "checking" ? "Cek..." : "Cek"}
+                    </button>
+                  )}
+                </div>
+                {promoStatus === "checking" && (
+                  <p className="mt-1.5 text-[11px] text-[#6B7280]">Memeriksa kode...</p>
+                )}
+                {promoStatus && promoStatus.valid && (
+                  <p className="mt-1.5 text-[11px] font-medium text-emerald-600">{promoStatus.desc}</p>
+                )}
+                {promoStatus && promoStatus.error && (
+                  <p className="mt-1.5 text-[11px] font-medium text-red-500">{promoStatus.error}</p>
+                )}
+              </div>
             </div>
           </motion.div>
 
