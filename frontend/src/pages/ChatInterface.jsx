@@ -28,6 +28,7 @@ import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
 import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { CodeGenerationPanel } from "@/components/chat/CodeGenerationPanel";
+import { LoadingAnimation, getLoadingType } from "@/components/chat/LoadingAnimation";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
 

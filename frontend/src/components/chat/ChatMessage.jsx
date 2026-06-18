@@ -8,6 +8,7 @@ import { ModelIcon } from "@/components/workspace/ModelIcon";
 import { DocumentDownloadMenu } from "@/components/chat/DocumentDownloadMenu";
 import { SearchPipeline } from "@/components/chat/SearchPipeline";
 import { QnaCard } from "@/components/chat/QnaCard";
+import { LoadingAnimation, getLoadingType } from "@/components/chat/LoadingAnimation";
 
 const FILE_ICONS = { pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", docx: "📝", doc: "📝", xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃" };
 const fileIcon = (name) => FILE_ICONS[(name || "").split(".").pop().toLowerCase()] || "📎";
@@ -199,9 +200,21 @@ export const AssistantMessage = ({ message, onRetry, onRefine }) => {
         <AssistantHeader message={message} />
 
         {isPending ? (
-          <div className="space-y-2.5 py-1" data-testid="pending-shimmer">
-            <div className="ma-shimmer h-3.5 w-2/5 rounded-full" />
-            <div className="ma-shimmer h-3.5 w-3/5 rounded-full" />
+          <div className="py-1" data-testid="pending-loading">
+            <LoadingAnimation
+              type={getLoadingType({
+                isDocumentRequest: false,
+                activeSkill: message.skillSlug ? { name: message.skillSlug, icon: "⚡" } : null,
+                ragEnabled: false,
+                extendedThinking: message.status === "reasoning",
+              }).type}
+              meta={getLoadingType({
+                isDocumentRequest: false,
+                activeSkill: message.skillSlug ? { name: message.skillSlug, icon: "⚡" } : null,
+                ragEnabled: false,
+                extendedThinking: message.status === "reasoning",
+              }).meta}
+            />
           </div>
         ) : (
           <>
