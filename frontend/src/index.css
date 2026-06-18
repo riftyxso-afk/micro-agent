@@ -182,8 +182,8 @@ code {
   gap: 14px;
   padding: 14px 16px;
   border-radius: 16px;
-  border: 1px solid #E5E7EB;
-  background: #FFFFFF;
+  border: none;
+  background: transparent;
   max-width: 360px;
   min-width: 260px;
 }
@@ -239,7 +239,7 @@ code {
 }
 
 /* ── 1. Document: Book animation ────────────────────────────── */
-.load-document { border-color: #3B82F6; }
+.load-document { }
 
 .load-book {
   width: 48px;
@@ -289,7 +289,7 @@ code {
 }
 
 /* ── 2. Skill: Ripple pulse ─────────────────────────────────── */
-.load-skill { border-color: #F59E0B; }
+.load-skill { }
 
 .skill-anim-wrap {
   width: 48px;
@@ -343,7 +343,7 @@ code {
 }
 
 /* ── 3. RAG: Scan animation ─────────────────────────────────── */
-.load-rag { border-color: #8B5CF6; }
+.load-rag { }
 
 .rag-scan-wrap {
   width: 48px;
@@ -357,9 +357,9 @@ code {
   flex-direction: column;
   gap: 5px;
   padding: 4px;
-  background: #F9FAFB;
+  background: transparent;
   border-radius: 4px;
-  border: 1px solid #E5E7EB;
+  border: none;
   height: 100%;
 }
 
@@ -418,7 +418,7 @@ code {
 }
 
 /* ── 4. Thinking: Brain waves ───────────────────────────────── */
-.load-thinking { border-color: #6366F1; }
+.load-thinking { }
 
 .thinking-brain {
   position: relative;
