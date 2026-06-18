@@ -8,6 +8,7 @@ import sys
 import tempfile
 import shutil
 import uuid
+import asyncio
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -2586,7 +2587,7 @@ async def ai_generate_doc(request: Request):
     body = await request.json()
     prompt = body.get("prompt", "")
     user_id = body.get("user_id", "anonymous")
-    model_id = body.get("model_id", "deepseek-v4-flash")
+    model_id = body.get("model_id", "claude-sonnet-4.5-1m")
 
     if not prompt:
         return JSONResponse({"error": "prompt required"}, status_code=400)
@@ -2621,6 +2622,21 @@ class GenerateStreamRequest(BaseModel):
     model_id: str = "claude-sonnet-4-6"
 
 
+# Track active document generation sessions for cancellation
+_active_doc_gen: dict[str, asyncio.Event] = {}
+
+
+@api_router.post("/generate-document-cancel")
+async def cancel_doc_generation(request: Request):
+    """Cancel an active document generation stream."""
+    body = await request.json()
+    gen_id = body.get("gen_id", "")
+    if gen_id and gen_id in _active_doc_gen:
+        _active_doc_gen[gen_id].set()
+        return JSONResponse({"cancelled": True})
+    return JSONResponse({"cancelled": False, "error": "Session not found"}, status_code=404)
+
+
 @api_router.post("/generate-document-stream")
 async def generate_document_stream_endpoint(request: Request):
     """Stream document generation with live code output via SSE."""
@@ -2628,18 +2644,24 @@ async def generate_document_stream_endpoint(request: Request):
     body = await request.json()
     prompt = body.get("prompt", "")
     user_id = body.get("user_id", "anonymous")
-    model_id = body.get("model_id", "deepseek-v4-flash")
+    model_id = body.get("model_id", "claude-sonnet-4.5-1m")
 
     if not prompt:
         return JSONResponse({"error": "prompt required"}, status_code=400)
 
+    gen_id = uuid.uuid4().hex[:12]
+    cancel_event = asyncio.Event()
+    _active_doc_gen[gen_id] = cancel_event
+
     async def safe_generator():
         try:
-            async for chunk in _stream_doc_generation(prompt, user_id, model_id):
+            async for chunk in _stream_doc_generation(prompt, user_id, model_id, gen_id, cancel_event):
                 yield chunk
         except Exception as e:
             logger.error(f"Stream generator error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': f'Server error: {str(e)}'})}\n\n"
+        finally:
+            _active_doc_gen.pop(gen_id, None)
 
     return StreamingResponse(
         safe_generator(),
@@ -2653,7 +2675,7 @@ async def generate_document_stream_endpoint(request: Request):
     )
 
 
-async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "deepseek-v4-flash"):
+async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "deepseek-v4-flash", gen_id: str = "", cancel_event: asyncio.Event = None):
     """Generator that streams SSE events for document generation."""
     import httpx
     import re as _re
@@ -2663,7 +2685,7 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
     in_code_block = False
 
     # Phase 1: Stream code generation
-    yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Generating code...'})}\n\n"
+    yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Generating code...', 'gen_id': gen_id})}\n\n"
 
     # Use OpenAI-compatible API (works with AIMurah / DeepSeek / Claude)
     base_url = env_str("OPENAI_BASE_URL")
@@ -2702,6 +2724,11 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
                     return
 
                 async for raw_chunk in resp.aiter_bytes():
+                    # Check for cancellation
+                    if cancel_event and cancel_event.is_set():
+                        yield f"data: {json.dumps({'type': 'cancelled', 'message': 'Dibatalkan oleh pengguna'})}\n\n"
+                        return
+
                     buffer += raw_chunk.decode("utf-8", errors="ignore")
 
                     # Process complete lines from buffer

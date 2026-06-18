@@ -10,6 +10,7 @@ import {
   Copy,
   FileCode,
   Clock,
+  Square,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/chatApi";
 
@@ -55,8 +56,26 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
   const [filename, setFilename] = useState("");
   const [downloadUrl, setDownloadUrl] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [genId, setGenId] = useState("");
   const codeRef = useRef(null);
   const readerRef = useRef(null);
+
+  const handleStop = useCallback(async () => {
+    if (genId) {
+      try {
+        await fetch(`${API_BASE_URL}/api/generate-document-cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gen_id: genId }),
+        });
+      } catch {}
+    }
+    if (readerRef.current) {
+      readerRef.current.cancel?.();
+    }
+    setPhase("error");
+    setErrorMsg("Dibatalkan oleh pengguna");
+  }, [genId]);
 
   // Auto-scroll code panel as new code streams in
   useEffect(() => {
@@ -78,7 +97,12 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
     switch (data.type) {
       case "phase":
         setPhase(data.phase);
+        if (data.gen_id) setGenId(data.gen_id);
         if (data.phase === "executing") setExpanded(false);
+        break;
+      case "cancelled":
+        setPhase("error");
+        setErrorMsg(data.message || "Dibatalkan");
         break;
       case "code_chunk":
         setCode((prev) => prev + data.code);
@@ -106,7 +130,7 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
       const res = await fetch(`${API_BASE_URL}/api/generate-document-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, user_id: userId, model_id: modelId }),
+        body: JSON.stringify({ prompt, user_id: userId, model_id: modelId || "claude-sonnet-4.5-1m" }),
       });
 
       if (!res.ok) {
@@ -199,22 +223,32 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
           </div>
         </div>
 
-        {code && (
-          <button
-            onClick={() => setExpanded(!isExpanded)}
-            className="ma-focus flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-[#6B7280] transition-colors hover:bg-black/5"
-          >
-            {isExpanded ? (
-              <>
-                <ChevronUp size={12} /> Hide
-              </>
-            ) : (
-              <>
-                <ChevronDown size={12} /> Show code
-              </>
-            )}
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {isActive && (
+            <button
+              onClick={handleStop}
+              className="ma-focus flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50"
+            >
+              <Square size={10} fill="currentColor" /> Stop
+            </button>
+          )}
+          {code && (
+            <button
+              onClick={() => setExpanded(!isExpanded)}
+              className="ma-focus flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-[#6B7280] transition-colors hover:bg-black/5"
+            >
+              {isExpanded ? (
+                <>
+                  <ChevronUp size={12} /> Hide
+                </>
+              ) : (
+                <>
+                  <ChevronDown size={12} /> Show code
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Code block */}
