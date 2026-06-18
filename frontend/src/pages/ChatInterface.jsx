@@ -1093,6 +1093,7 @@ export default function ChatInterface() {
                     <CodeGenerationPanel
                       prompt={m.codeGenPrompt}
                       userId={user?.id || "anonymous"}
+                      modelId={model?.id || "deepseek-v4-flash"}
                       onComplete={({ filename, downloadUrl }) => {
                         updateMessage(m.id, {
                           state: "completed",

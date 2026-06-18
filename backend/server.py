@@ -1156,6 +1156,8 @@ async def pakasir_webhook(request: Request):
     status = body.get("status", "")
     project = body.get("project", "")
 
+    logger.info(f"Webhook received: order={order_id} amount={amount} status={status} project={project}")
+
     # Verify project matches
     if PAKASIR_SLUG and project != PAKASIR_SLUG:
         return JSONResponse({"error": "Invalid project"}, status_code=400)
@@ -1390,7 +1392,7 @@ async def verify_subscription(order_id: str, request: Request):
             return JSONResponse({"status": "active", "plan": plan})
         return JSONResponse({"status": tx_status or "pending", "plan": plan})
 
-    # No Pakasir key — fallback to DB
+    # No Pakasir key or API failed — fallback to DB
     if not supa:
         return JSONResponse({"status": "pending", "plan": plan})
     uid = _get_user_id(request)
@@ -1399,6 +1401,56 @@ async def verify_subscription(order_id: str, request: Request):
     res = supa.table("subscriptions").select("*").eq("order_id", order_id).eq("user_id", uid).execute()
     if res.data:
         sub = res.data[0]
+        # If still pending and user is authenticated, activate it
+        # (Pakasir redirect back = payment confirmed)
+        if sub.get("status") == "pending":
+            from datetime import datetime, timezone
+            if plan == "topup":
+                tx_amount = int(sub.get("amount_idr", 0))
+                tokens_to_add = TOPUP_AMOUNT_TOKENS.get(tx_amount, max(1, tx_amount // 100))
+                existing_bal = supa.table("user_credits").select("balance").eq("user_id", uid).execute()
+                current_balance = existing_bal.data[0]["balance"] if existing_bal.data else 0
+                new_balance = current_balance + tokens_to_add
+                supa.table("user_credits").upsert({
+                    "user_id": uid,
+                    "balance": new_balance,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }, on_conflict="user_id").execute()
+                supa.table("credit_transactions").insert({
+                    "user_id": uid,
+                    "amount": tokens_to_add,
+                    "type": "topup",
+                    "model": None,
+                }).execute()
+                supa.table("subscriptions").update({
+                    "status": "active",
+                    "plan": "topup",
+                    "credits": tokens_to_add,
+                    "activated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("order_id", order_id).execute()
+                logger.info(f"Topup fallback activated: user={uid} tokens={tokens_to_add} order={order_id}")
+            else:
+                new_balance = PLAN_CREDITS.get(plan, 50)
+                supa.table("user_credits").upsert({
+                    "user_id": uid,
+                    "balance": new_balance,
+                    "plan": plan,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }, on_conflict="user_id").execute()
+                supa.table("credit_transactions").insert({
+                    "user_id": uid,
+                    "amount": new_balance,
+                    "type": "topup",
+                    "model": None,
+                }).execute()
+                supa.table("subscriptions").update({
+                    "status": "active",
+                    "plan": plan,
+                    "credits": new_balance,
+                    "activated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("order_id", order_id).execute()
+                logger.info(f"Subscription fallback activated: user={uid} plan={plan} tokens={new_balance} order={order_id}")
+            return JSONResponse({"status": "active", "plan": plan})
         return JSONResponse({"status": sub["status"], "plan": sub["plan"]})
     return JSONResponse({"status": "pending", "plan": plan})
 
@@ -2576,13 +2628,14 @@ async def generate_document_stream_endpoint(request: Request):
     body = await request.json()
     prompt = body.get("prompt", "")
     user_id = body.get("user_id", "anonymous")
+    model_id = body.get("model_id", "deepseek-v4-flash")
 
     if not prompt:
         return JSONResponse({"error": "prompt required"}, status_code=400)
 
     async def safe_generator():
         try:
-            async for chunk in _stream_doc_generation(prompt, user_id):
+            async for chunk in _stream_doc_generation(prompt, user_id, model_id):
                 yield chunk
         except Exception as e:
             logger.error(f"Stream generator error: {e}")
@@ -2600,7 +2653,7 @@ async def generate_document_stream_endpoint(request: Request):
     )
 
 
-async def _stream_doc_generation(prompt: str, user_id: str):
+async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "deepseek-v4-flash"):
     """Generator that streams SSE events for document generation."""
     import httpx
     import re as _re
@@ -2613,16 +2666,22 @@ async def _stream_doc_generation(prompt: str, user_id: str):
     yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Generating code...'})}\n\n"
 
     # Use OpenAI-compatible API (works with AIMurah / DeepSeek / Claude)
-    clean_base = OPENAI_BASE_URL.rstrip("/")
+    base_url = env_str("OPENAI_BASE_URL")
+    api_key = env_str("OPENAI_API_KEY")
+    if not base_url or not api_key:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'OPENAI_BASE_URL dan OPENAI_API_KEY belum dikonfigurasi'})}\n\n"
+        return
+
+    clean_base = base_url.rstrip("/")
     if clean_base.endswith("/chat/completions"):
         clean_base = clean_base[:-len("/chat/completions")]
 
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "claude-sonnet-4-6",
+        "model": model_id,
         "messages": [
             {"role": "system", "content": DOC_GEN_SYSTEM},
             {"role": "user", "content": prompt},
