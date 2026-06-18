@@ -2580,13 +2580,22 @@ async def generate_document_stream_endpoint(request: Request):
     if not prompt:
         return JSONResponse({"error": "prompt required"}, status_code=400)
 
+    async def safe_generator():
+        try:
+            async for chunk in _stream_doc_generation(prompt, user_id):
+                yield chunk
+        except Exception as e:
+            logger.error(f"Stream generator error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Server error: {str(e)}'})}\n\n"
+
     return StreamingResponse(
-        _stream_doc_generation(prompt, user_id),
+        safe_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
             "X-Accel-Buffering": "no",
-            "Transfer-Encoding": "chunked",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
         },
     )
 
@@ -2623,6 +2632,8 @@ async def _stream_doc_generation(prompt: str, user_id: str):
         "stream": True,
     }
 
+    buffer = ""
+
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream("POST", f"{clean_base}/chat/completions", headers=headers, json=payload) as resp:
@@ -2631,35 +2642,43 @@ async def _stream_doc_generation(prompt: str, user_id: str):
                     yield f"data: {json.dumps({'type': 'error', 'message': f'AI error {resp.status_code}: {error_body[:300].decode()}'})}\n\n"
                     return
 
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        text_chunk = delta.get("content", "")
-                        if not text_chunk:
+                async for raw_chunk in resp.aiter_bytes():
+                    buffer += raw_chunk.decode("utf-8", errors="ignore")
+
+                    # Process complete lines from buffer
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
                             continue
-                    except (json.JSONDecodeError, IndexError, KeyError):
-                        continue
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            text_chunk = delta.get("content", "")
+                            if not text_chunk:
+                                continue
+                        except (json.JSONDecodeError, IndexError, KeyError):
+                            continue
 
-                    full_text += text_chunk
+                        full_text += text_chunk
 
-                    # Detect code block
-                    if "```python" in full_text and not in_code_block:
-                        in_code_block = True
+                        # Detect code block
+                        if "```python" in full_text and not in_code_block:
+                            in_code_block = True
 
-                    if in_code_block:
-                        code_match = _re.search(r"```python\n(.*)", full_text, _re.DOTALL)
-                        if code_match:
-                            code_so_far = code_match.group(1).split("```")[0]
-                            full_code = code_so_far
+                        if in_code_block:
+                            code_match = _re.search(r"```python\n(.*)", full_text, _re.DOTALL)
+                            if code_match:
+                                code_so_far = code_match.group(1).split("```")[0]
+                                full_code = code_so_far
 
-                    yield f"data: {json.dumps({'type': 'code_chunk', 'code': text_chunk})}\n\n"
-                    await asyncio.sleep(0)
+                        yield f"data: {json.dumps({'type': 'code_chunk', 'code': text_chunk})}\n\n"
+                        await asyncio.sleep(0)
 
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': f'Connection error: {str(e)}'})}\n\n"

@@ -120,22 +120,33 @@ export function CodeGenerationPanel({ prompt, userId, onComplete, onError }) {
       const reader = res.body.getReader();
       readerRef.current = reader;
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // keep incomplete line in buffer
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data: ")) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const data = JSON.parse(trimmed.slice(6));
               handleSSEEvent(data);
             } catch {}
           }
         }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim().startsWith("data: ")) {
+        try {
+          const data = JSON.parse(buffer.trim().slice(6));
+          handleSSEEvent(data);
+        } catch {}
       }
     } catch (err) {
       setPhase("error");
