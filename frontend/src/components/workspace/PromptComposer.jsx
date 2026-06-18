@@ -24,6 +24,7 @@ import {
   Gauge,
   ChevronRight,
   ChevronLeft,
+  BookOpen,
 } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 import { ToolsMenu } from "@/components/workspace/ToolsMenu";
@@ -183,6 +184,8 @@ export const PromptComposer = ({
   reasoningEnabled,
   onReasoningToggle,
   tokenBalance = null,
+  onRagToggle,
+  ragEnabled,
 }) => {
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
@@ -709,6 +712,28 @@ export const PromptComposer = ({
             onSkillSelect={(skill) => setActiveSkill(skill)}
             onSkillClear={() => setActiveSkill(null)}
           />
+
+          {/* RAG Knowledge Base toggle */}
+          {onRagToggle && (
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onRagToggle}
+                  className={`ma-focus grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
+                    ragEnabled
+                      ? "bg-[#EEF2FF] text-[#6366F1]"
+                      : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
+                  }`}
+                >
+                  <BookOpen size={18} strokeWidth={1.75} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {ragEnabled ? "Knowledge Base ON" : "Knowledge Base OFF"}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Attach — always visible */}
           <IconAction

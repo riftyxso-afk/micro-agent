@@ -352,3 +352,56 @@ export function streamChat({
       onError?.(err);
     });
 }
+
+
+// ── RAG Document APIs ────────────────────────────────────────────────────────
+
+export async function ragUploadDocument(file, userId, authToken = null, isPublic = false) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("user_id", userId);
+  formData.append("is_public", isPublic);
+
+  const headers = {};
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_BASE_URL}/api/rag/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  return res.json();
+}
+
+export async function ragListDocuments(userId, authToken = null) {
+  const headers = {};
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_BASE_URL}/api/rag/documents?user_id=${encodeURIComponent(userId)}`, {
+    headers,
+  });
+  return res.json();
+}
+
+export async function ragDeleteDocument(documentId, userId, authToken = null) {
+  const headers = {};
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_BASE_URL}/api/rag/documents/${documentId}?user_id=${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  return res.json();
+}
+
+export async function aiGenerateDocument(prompt, userId, authToken = null, modelId = "deepseek-v4-flash") {
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_BASE_URL}/api/ai-generate-doc`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt, user_id: userId, model_id: modelId }),
+  });
+  return res.json();
+}

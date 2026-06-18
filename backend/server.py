@@ -2267,6 +2267,91 @@ async def generate_document(req: DocumentRequest):
         return JSONResponse({"error": "Terjadi kesalahan saat membuat dokumen"}, status_code=500)
 
 
+# ── RAG + AI Document Generation ──────────────────────────────────────────────
+
+MEDIA_TYPES = {
+    "pdf":  "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls":  "application/vnd.ms-excel",
+    "txt":  "text/plain", "md": "text/markdown",
+}
+
+class RAGUploadRequest(BaseModel):
+    user_id: str
+    is_public: bool = False
+
+@api_router.post("/rag/upload")
+async def rag_upload(file: UploadFile = File(...), user_id: str = Form(...), is_public: bool = Form(False)):
+    """Upload a document for RAG knowledge base."""
+    from rag import ingest_document
+    file_bytes = await file.read()
+    result = await ingest_document(file_bytes, file.filename, user_id, is_public)
+    return JSONResponse(result)
+
+
+@api_router.get("/rag/documents")
+async def rag_list_documents(user_id: str):
+    """List user's RAG documents."""
+    if not supa: return _no_supa()
+    try:
+        result = supa.table("rag_documents").select(
+            "id, filename, file_type, chunk_count, is_public, created_at"
+        ).eq("user_id", user_id).order("created_at", desc=True).execute()
+        return JSONResponse({"documents": result.data or []})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@api_router.delete("/rag/documents/{document_id}")
+async def rag_delete_document(document_id: str, user_id: str):
+    """Delete a RAG document and its chunks."""
+    if not supa: return _no_supa()
+    try:
+        supa.table("rag_documents").delete().eq("id", document_id).eq("user_id", user_id).execute()
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@api_router.post("/ai-generate-doc")
+async def ai_generate_doc(request: Request):
+    """AI generates a real document (PDF/Excel/Word) via Python execution."""
+    from rag import generate_document_with_ai, is_document_request
+    body = await request.json()
+    prompt = body.get("prompt", "")
+    user_id = body.get("user_id", "anonymous")
+    model_id = body.get("model_id", "deepseek-v4-flash")
+
+    if not prompt:
+        return JSONResponse({"error": "prompt required"}, status_code=400)
+
+    try:
+        result = await generate_document_with_ai(prompt, user_id, model_id)
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("AI document generation failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@api_router.get("/download/{file_id}/{filename}")
+async def download_generated_file(file_id: str, filename: str):
+    """Download a generated document file."""
+    if not supa: return _no_supa()
+    try:
+        record = supa.table("generated_files").select("file_path").eq("id", file_id).single().execute()
+        if not record.data:
+            return JSONResponse({"error": "File tidak ditemukan atau sudah expired"}, status_code=404)
+        path = record.data["file_path"]
+        if not os.path.exists(path):
+            return JSONResponse({"error": "File sudah dihapus"}, status_code=404)
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        media_type = MEDIA_TYPES.get(ext, "application/octet-stream")
+        return FileResponse(path=path, filename=filename, media_type=media_type)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @api_router.get("/", response_class=HTMLResponse)
 async def root():
     return HTMLResponse(API_STATUS_HTML)

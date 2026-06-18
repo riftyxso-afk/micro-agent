@@ -11,6 +11,7 @@ import { HistoryDialog } from "@/components/workspace/HistoryDialog";
 import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
 import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
+import { RagPanel } from "@/components/workspace/RagPanel";
 import {
   getModelById,
   DEFAULT_MODEL_ID,
@@ -20,7 +21,7 @@ import {
   IMAGE_MODEL,
   MODEL_TOKEN_COST,
 } from "@/lib/workspaceData";
-import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze, API_BASE_URL } from "@/lib/chatApi";
+import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze, aiGenerateDocument, API_BASE_URL } from "@/lib/chatApi";
 import { useSubscription } from "@/lib/useSubscription";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
@@ -76,6 +77,8 @@ export default function ChatInterface() {
   const [uploadedFiles, setUploadedFiles] = useState([]); // File objects pending send
   const [sessionFiles, setSessionFiles] = useState([]); // { name, url, type, size } uploaded to storage
   const [isDragging, setIsDragging] = useState(false);
+  const [showRagPanel, setShowRagPanel] = useState(false);
+  const [ragEnabled, setRagEnabled] = useState(true);
   const deepResearchAbortRef = useRef(null);
 
   const seededRef = useRef(false);
@@ -524,6 +527,43 @@ export default function ChatInterface() {
               error: err.message || "Gagal generate gambar",
             });
             toast("Gagal generate gambar", { description: err.message });
+          })
+          .finally(() => setIsGenerating(false));
+        return;
+      }
+
+      // Route document generation requests
+      const DOC_KEYWORDS = [
+        "buat pdf", "buatkan pdf", "generate pdf", "create pdf",
+        "buat excel", "buatkan excel", "generate excel",
+        "buat word", "buatkan word", "generate word",
+        "buat dokumen", "buatkan dokumen", "buat file", "buatkan file",
+        "buat laporan", "buatkan laporan", "buat absensi", "buat tabel",
+        "download pdf", "download excel", "generate document", "create file",
+      ];
+      const isDocReq = DOC_KEYWORDS.some((kw) => text.toLowerCase().includes(kw));
+
+      if (isDocReq) {
+        updateMessage(assistantMsg.id, { state: "streaming", status: "generating document..." });
+        setIsGenerating(true);
+        aiGenerateDocument(text, user?.id || null, session?.access_token || null, model.id)
+          .then((data) => {
+            if (data.error) throw new Error(data.error);
+            updateMessage(assistantMsg.id, {
+              state: "completed",
+              status: "just now",
+              text: data.message || `Dokumen ${data.filename} berhasil dibuat!`,
+              downloadUrl: data.download_url,
+              downloadFilename: data.filename,
+            });
+          })
+          .catch((err) => {
+            updateMessage(assistantMsg.id, {
+              state: "error",
+              status: "failed",
+              error: err.message || "Gagal generate dokumen",
+            });
+            toast("Gagal generate dokumen", { description: err.message });
           })
           .finally(() => setIsGenerating(false));
         return;
@@ -1061,7 +1101,36 @@ export default function ChatInterface() {
                   </div>
                 </div>
               ) : (
-                <AssistantMessage key={m.id} message={m} onRetry={handleRetry} onRefine={handleRefine} />
+                <div key={m.id}>
+                  <AssistantMessage message={m} onRetry={handleRetry} onRefine={handleRefine} />
+                  {/* Document download button */}
+                  {m.downloadUrl && m.state === "completed" && (
+                    <div className="mt-2 ml-10">
+                      <a
+                        href={`${API_BASE_URL}${m.downloadUrl}`}
+                        download={m.downloadFilename}
+                        className="ma-focus inline-flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-[#F7F7F8] px-4 py-2.5 text-[13px] font-medium text-[#111111] shadow-[0_1px_3px_rgba(17,24,39,0.04)] transition-all hover:bg-[#EEF2FF] hover:border-[#C7D2FE] hover:text-[#6366F1]"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                          <polyline points="7 10 12 15 17 10"/>
+                          <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Download {m.downloadFilename}
+                      </a>
+                    </div>
+                  )}
+                  {/* RAG indicator badge */}
+                  {m.ragUsed && m.state === "completed" && (
+                    <div className="mt-1.5 ml-10 flex items-center gap-1.5 text-[11px] text-[#6366F1]">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                      </svg>
+                      {m.ragChunks || 0} bagian dari dokumen digunakan
+                    </div>
+                  )}
+                </div>
               ),
             )}
             {/* Bottom padding so last message isn't hidden behind composer */}
@@ -1102,6 +1171,8 @@ export default function ChatInterface() {
               initialSkill={seed?.skillSlug ? { slug: seed.skillSlug, name: seed.skillSlug, icon: "🧠" } : null}
               initialEffortLevel={seed?.effortLevel || "low"}
               tokenBalance={tokenBalance}
+              onRagToggle={() => setShowRagPanel((v) => !v)}
+              ragEnabled={ragEnabled}
             />
             <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
               MicroAgent can make mistakes. Always double-check important information.
@@ -1125,6 +1196,7 @@ export default function ChatInterface() {
         onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
       />
       <LowTokenPopup tokenBalance={tokenBalance} />
+      <RagPanel open={showRagPanel} onClose={() => setShowRagPanel(false)} />
     </div>
   );
 }
