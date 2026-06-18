@@ -1186,7 +1186,21 @@ async def pakasir_webhook(request: Request):
                     "credits": PLAN_CREDITS.get(plan, 50),
                     "activated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("order_id", order_id).execute()
-                logger.info(f"Subscription activated: user={uid} plan={plan} order={order_id}")
+                # Sync token balance to user_credits
+                new_balance = PLAN_CREDITS.get(plan, 50)
+                supa.table("user_credits").upsert({
+                    "user_id": uid,
+                    "balance": new_balance,
+                    "plan": plan,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }, on_conflict="user_id").execute()
+                supa.table("credit_transactions").insert({
+                    "user_id": uid,
+                    "amount": new_balance,
+                    "type": "topup",
+                    "model": None,
+                }).execute()
+                logger.info(f"Subscription activated: user={uid} plan={plan} tokens={new_balance} order={order_id}")
             else:
                 logger.warning(f"No pending subscription for order {order_id}")
         except Exception as e:
@@ -1294,6 +1308,21 @@ async def verify_subscription(order_id: str, request: Request):
                             "credits": PLAN_CREDITS.get(plan, 50),
                             "status": "active",
                             "activated_at": datetime.now(timezone.utc).isoformat(),
+                        }).execute()
+                    # Sync token balance to user_credits
+                    if uid:
+                        new_balance = PLAN_CREDITS.get(plan, 50)
+                        supa.table("user_credits").upsert({
+                            "user_id": uid,
+                            "balance": new_balance,
+                            "plan": plan,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }, on_conflict="user_id").execute()
+                        supa.table("credit_transactions").insert({
+                            "user_id": uid,
+                            "amount": new_balance,
+                            "type": "topup",
+                            "model": None,
                         }).execute()
                 except Exception as db_err:
                     logger.warning(f"DB update error: {db_err}")

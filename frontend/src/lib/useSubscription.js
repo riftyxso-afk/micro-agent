@@ -52,7 +52,18 @@ export function useSubscription() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
-      setSubscription(data.subscription || { plan: "free", status: "active" });
+      const sub = data.subscription || { plan: "free", status: "active" };
+      // Fetch real token balance from user_credits table
+      try {
+        const balRes = await fetch(`${API_BASE_URL}/api/credits/${user.id}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const balData = await balRes.json();
+        if (balData.balance != null) {
+          sub.credits = balData.balance;
+        }
+      } catch {}
+      setSubscription(sub);
     } catch {
       setSubscription({ plan: "free", status: "active", credits: PLAN_FEATURES.free.credits });
     }
@@ -72,6 +83,12 @@ export function useSubscription() {
         event: "UPDATE",
         schema: "public",
         table: "subscriptions",
+        filter: `user_id=eq.${user.id}`,
+      }, () => { fetchSubscription(); })
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "user_credits",
         filter: `user_id=eq.${user.id}`,
       }, () => { fetchSubscription(); })
       .subscribe();
