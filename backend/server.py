@@ -2602,12 +2602,24 @@ async def ai_generate_doc(request: Request):
 
 # ── Streaming Document Generation (SSE) ────────────────────────────────────────
 
-DOC_GEN_SYSTEM = """You are a Python code generator for documents.
-Generate complete runnable Python code to create the requested document.
-Use: reportlab (PDF), openpyxl (Excel), python-docx (Word).
-Save file with descriptive Indonesian filename in current directory.
-End with exactly: OUTPUT_FILE: <filename.ext>
-Output ONLY the python code block and OUTPUT_FILE line. Nothing else."""
+DOC_GEN_SYSTEM = """You are a document generator. Write Python code that creates the requested file.
+
+Rules:
+1. Write COMPLETE Python code inside ```python code block
+2. Install/reportlab/openpyxl/python-docx are pre-installed
+3. Save file in current directory (os.getcwd()) with Indonesian filename
+4. After closing ```, write EXACTLY: OUTPUT_FILE: namafile.ext
+5. Do NOT add any explanation, just code block then OUTPUT_FILE line
+
+Example output:
+```python
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+c = canvas.Canvas("laporan.pdf", pagesize=A4)
+c.drawString(100, 750, "Hello")
+c.save()
+```
+OUTPUT_FILE: laporan.pdf"""
 
 TOPUP_AMOUNT_TOKENS = {
     10000: 100,
@@ -2624,6 +2636,18 @@ class GenerateStreamRequest(BaseModel):
 
 # Track active document generation sessions for cancellation
 _active_doc_gen: dict[str, asyncio.Event] = {}
+_doc_gen_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent doc gen
+
+
+async def _cleanup_generated_file(file_id: str, tmp_dir: str, delay: int = 600):
+    """Remove generated file and temp dir after delay."""
+    await asyncio.sleep(delay)
+    if supa:
+        try:
+            supa.table("generated_files").delete().eq("id", file_id).execute()
+        except Exception:
+            pass
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @api_router.post("/generate-document-cancel")
@@ -2654,14 +2678,19 @@ async def generate_document_stream_endpoint(request: Request):
     _active_doc_gen[gen_id] = cancel_event
 
     async def safe_generator():
-        try:
-            async for chunk in _stream_doc_generation(prompt, user_id, model_id, gen_id, cancel_event):
-                yield chunk
-        except Exception as e:
-            logger.error(f"Stream generator error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Server error: {str(e)}'})}\n\n"
-        finally:
-            _active_doc_gen.pop(gen_id, None)
+        async with _doc_gen_semaphore:
+            try:
+                async for chunk in _stream_doc_generation(prompt, user_id, model_id, gen_id, cancel_event):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Stream generator error: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Server error: {str(e)}'})}\n\n"
+            finally:
+                # Keep gen_id alive for 30s so cancel still works after stream ends
+                async def _delayed_cleanup():
+                    await asyncio.sleep(30)
+                    _active_doc_gen.pop(gen_id, None)
+                asyncio.create_task(_delayed_cleanup())
 
     return StreamingResponse(
         safe_generator(),
@@ -2708,79 +2737,113 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
             {"role": "system", "content": DOC_GEN_SYSTEM},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "temperature": 0.3,
         "stream": True,
     }
 
     buffer = ""
+    stream_done = False
 
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream("POST", f"{clean_base}/chat/completions", headers=headers, json=payload) as resp:
-                if resp.status_code >= 400:
-                    error_body = await resp.aread()
-                    yield f"data: {json.dumps({'type': 'error', 'message': f'AI error {resp.status_code}: {error_body[:300].decode()}'})}\n\n"
-                    return
-
-                async for raw_chunk in resp.aiter_bytes():
-                    # Check for cancellation
-                    if cancel_event and cancel_event.is_set():
-                        yield f"data: {json.dumps({'type': 'cancelled', 'message': 'Dibatalkan oleh pengguna'})}\n\n"
+    # Retry on 429 with backoff
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{clean_base}/chat/completions", headers=headers, json=payload) as resp:
+                    if resp.status_code == 429:
+                        error_body = await resp.aread()
+                        if attempt < 2:
+                            wait = (attempt + 1) * 5
+                            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': f'Rate limit, menunggu {wait}s...'})}\n\n"
+                            await asyncio.sleep(wait)
+                            continue
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Batas request tercapai. Coba lagi dalam beberapa menit.'})}\n\n"
+                        return
+                    if resp.status_code >= 400:
+                        error_body = await resp.aread()
+                        yield f"data: {json.dumps({'type': 'error', 'message': f'AI error {resp.status_code}: {error_body[:300].decode()}'})}\n\n"
                         return
 
-                    buffer += raw_chunk.decode("utf-8", errors="ignore")
+                    try:
+                        async for raw_chunk in resp.aiter_bytes():
+                            if stream_done:
+                                break
 
-                    # Process complete lines from buffer
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-                        if not line:
-                            continue
-                        if not line.startswith("data: "):
-                            continue
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            text_chunk = delta.get("content", "")
-                            if not text_chunk:
-                                continue
-                        except (json.JSONDecodeError, IndexError, KeyError):
-                            continue
+                            if cancel_event and cancel_event.is_set():
+                                yield f"data: {json.dumps({'type': 'cancelled', 'message': 'Dibatalkan oleh pengguna'})}\n\n"
+                                return
 
-                        full_text += text_chunk
+                            buffer += raw_chunk.decode("utf-8", errors="ignore")
 
-                        # Detect code block
-                        if "```python" in full_text and not in_code_block:
-                            in_code_block = True
+                            while "\n" in buffer:
+                                if stream_done:
+                                    break
+                                line, buffer = buffer.split("\n", 1)
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                if not line.startswith("data: "):
+                                    continue
+                                data_str = line[6:]
+                                if data_str.strip() == "[DONE]":
+                                    stream_done = True
+                                    break
+                                try:
+                                    chunk = json.loads(data_str)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    text_chunk = delta.get("content", "")
+                                    if not text_chunk:
+                                        continue
+                                except (json.JSONDecodeError, IndexError, KeyError):
+                                    continue
 
-                        if in_code_block:
-                            code_match = _re.search(r"```python\n(.*)", full_text, _re.DOTALL)
-                            if code_match:
-                                code_so_far = code_match.group(1).split("```")[0]
-                                full_code = code_so_far
+                                full_text += text_chunk
 
-                        yield f"data: {json.dumps({'type': 'code_chunk', 'code': text_chunk})}\n\n"
-                        await asyncio.sleep(0)
+                                if "```python" in full_text and not in_code_block:
+                                    in_code_block = True
 
-    except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': f'Connection error: {str(e)}'})}\n\n"
-        return
+                                if in_code_block:
+                                    code_match = _re.search(r"```python\n(.*)", full_text, _re.DOTALL)
+                                    if code_match:
+                                        code_so_far = code_match.group(1).split("```")[0]
+                                        full_code = code_so_far
+                                        yield f"data: {json.dumps({'type': 'code_chunk', 'code': text_chunk})}\n\n"
+
+                                await asyncio.sleep(0)
+                    finally:
+                        await client.aclose()
+            break  # success, exit retry loop
+        except httpx.TimeoutException:
+            if attempt < 2:
+                yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Timeout, mencoba ulang...'})}\n\n"
+                await asyncio.sleep(3)
+                continue
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Connection timeout'})}\n\n"
+            return
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Connection error: {str(e)}'})}\n\n"
+            return
+
+    logger.info(f"DocGen full_text ({len(full_text)} chars): {full_text[-300:]}")
+    logger.info(f"DocGen full_code ({len(full_code)} chars): {full_code[-200:] if full_code else '(empty)'}")
 
     # Extract OUTPUT_FILE
     file_match = _re.search(r"OUTPUT_FILE:\s*(\S+)", full_text)
     if not file_match:
-        yield f"data: {json.dumps({'type': 'error', 'message': 'OUTPUT_FILE not found in AI response'})}\n\n"
+        # Try to find any file that was created
+        yield f"data: {json.dumps({'type': 'error', 'message': 'AI tidak menghasilkan OUTPUT_FILE. Coba jelaskan lebih spesifik.'})}\n\n"
         return
 
-    output_file = file_match.group(1).strip("`\"'")
+    output_file = file_match.group(1).strip("`\"'").strip()
 
     # Phase 2: Execute the code
     yield f"data: {json.dumps({'type': 'phase', 'phase': 'executing', 'message': 'Executing code...'})}\n\n"
     await asyncio.sleep(0.3)
+
+    # Check cancel before executing
+    if cancel_event and cancel_event.is_set():
+        yield f"data: {json.dumps({'type': 'cancelled', 'message': 'Dibatalkan oleh pengguna'})}\n\n"
+        return
 
     try:
         tmp_dir = tempfile.mkdtemp(prefix="docgen_")
@@ -2791,20 +2854,35 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(patched_code)
 
+        logger.info(f"DocGen executing code in {tmp_dir}, looking for: {output_file}")
+
         result = subprocess.run(
             [sys.executable, script_path],
             capture_output=True, text=True, timeout=30
         )
+
+        logger.info(f"DocGen stdout: {result.stdout[:200] if result.stdout else '(empty)'}")
+        logger.info(f"DocGen stderr: {result.stderr[:500] if result.stderr else '(empty)'}")
 
         if result.returncode != 0:
             yield f"data: {json.dumps({'type': 'error', 'message': result.stderr[:500]})}\n\n"
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
 
+        # Check if exact file exists
         if not os.path.exists(file_path):
-            yield f"data: {json.dumps({'type': 'error', 'message': f'File {output_file} tidak ditemukan'})}\n\n"
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return
+            # Try to find any non-script files in tmp_dir
+            found_files = [f for f in os.listdir(tmp_dir) if not f.endswith(".py")]
+            if found_files:
+                # Use the first found file
+                output_file = found_files[0]
+                file_path = os.path.join(tmp_dir, output_file)
+                logger.info(f"DocGen: exact file not found, using: {output_file}")
+            else:
+                logger.error(f"DocGen: no files created. Files in dir: {os.listdir(tmp_dir)}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'File tidak ditemukan setelah eksekusi. Periksa kode Python.'})}\n\n"
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return
 
         # Register file in Supabase
         file_id = uuid.uuid4().hex
@@ -2820,7 +2898,7 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
                 logger.warning(f"Failed to register generated file: {e}")
 
         # Schedule cleanup after 10 minutes
-        asyncio.create_task(_cleanup(file_id, tmp_dir, delay=600))
+        asyncio.create_task(_cleanup_generated_file(file_id, tmp_dir, delay=600))
 
         # Phase 3: Done
         yield f"data: {json.dumps({'type': 'complete', 'file_id': file_id, 'filename': output_file, 'download_url': f'/api/download/{file_id}/{output_file}'})}\n\n"

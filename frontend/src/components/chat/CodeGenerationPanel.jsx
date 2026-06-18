@@ -59,6 +59,7 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
   const [genId, setGenId] = useState("");
   const codeRef = useRef(null);
   const readerRef = useRef(null);
+  const startedRef = useRef(false);
 
   const handleStop = useCallback(async () => {
     if (genId) {
@@ -180,7 +181,10 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
   }, [prompt, userId, modelId, handleSSEEvent, onError]);
 
   useEffect(() => {
-    startGeneration();
+    if (!startedRef.current) {
+      startedRef.current = true;
+      startGeneration();
+    }
   }, [startGeneration]);
 
   const config = PHASE_CONFIG[phase];
