@@ -1089,14 +1089,21 @@ PLAN_CREDITS = {
     "ultra": 10000,
 }
 
+# Pakasir IDR amount → token count for topup
+TOPUP_AMOUNT_TOKENS = {
+    10000: 100,
+    40000: 500,
+    100000: 1500,
+}
+
 
 def _get_plan_from_order(order_id: str) -> str:
-    """Extract plan from order_id format MA-PRO-xxx or MA-ULTRA-xxx"""
+    """Extract plan from order_id format MA-PRO-xxx, MA-ULTRA-xxx, or MA-TOPUP-xxx"""
     import re
     m = re.match(r"MA-([A-Z]+)-", order_id or "")
     if m:
         plan = m.group(1).lower()
-        if plan in ("pro", "ultra"):
+        if plan in ("pro", "ultra", "topup"):
             return plan
     return "pro"
 
@@ -1176,31 +1183,61 @@ async def pakasir_webhook(request: Request):
     if supa:
         try:
             # Check pending order
-            pending = supa.table("subscriptions").select("user_id").eq("order_id", order_id).execute()
+            pending = supa.table("subscriptions").select("user_id, amount_idr").eq("order_id", order_id).execute()
             if pending.data:
                 uid = pending.data[0]["user_id"]
                 from datetime import datetime, timezone
-                supa.table("subscriptions").update({
-                    "status": "active",
-                    "plan": plan,
-                    "credits": PLAN_CREDITS.get(plan, 50),
-                    "activated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("order_id", order_id).execute()
-                # Sync token balance to user_credits
-                new_balance = PLAN_CREDITS.get(plan, 50)
-                supa.table("user_credits").upsert({
-                    "user_id": uid,
-                    "balance": new_balance,
-                    "plan": plan,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }, on_conflict="user_id").execute()
-                supa.table("credit_transactions").insert({
-                    "user_id": uid,
-                    "amount": new_balance,
-                    "type": "topup",
-                    "model": None,
-                }).execute()
-                logger.info(f"Subscription activated: user={uid} plan={plan} tokens={new_balance} order={order_id}")
+
+                if plan == "topup":
+                    # Topup: determine tokens from Pakasir amount or DB amount
+                    tx_amount = int(amount) if amount else int(pending.data[0].get("amount_idr", 0))
+                    tokens_to_add = TOPUP_AMOUNT_TOKENS.get(tx_amount, max(1, tx_amount // 100))
+                    # Add tokens to existing balance
+                    existing = supa.table("user_credits").select("balance").eq("user_id", uid).execute()
+                    current_balance = existing.data[0]["balance"] if existing.data else 0
+                    new_balance = current_balance + tokens_to_add
+                    supa.table("user_credits").upsert({
+                        "user_id": uid,
+                        "balance": new_balance,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }, on_conflict="user_id").execute()
+                    supa.table("credit_transactions").insert({
+                        "user_id": uid,
+                        "amount": tokens_to_add,
+                        "type": "topup",
+                        "model": None,
+                    }).execute()
+                    # Mark subscription row as active (so verify sees it)
+                    supa.table("subscriptions").update({
+                        "status": "active",
+                        "plan": "topup",
+                        "credits": tokens_to_add,
+                        "activated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("order_id", order_id).execute()
+                    logger.info(f"Topup completed: user={uid} tokens={tokens_to_add} order={order_id}")
+                else:
+                    # Subscription: set plan credits
+                    supa.table("subscriptions").update({
+                        "status": "active",
+                        "plan": plan,
+                        "credits": PLAN_CREDITS.get(plan, 50),
+                        "activated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("order_id", order_id).execute()
+                    # Sync token balance to user_credits
+                    new_balance = PLAN_CREDITS.get(plan, 50)
+                    supa.table("user_credits").upsert({
+                        "user_id": uid,
+                        "balance": new_balance,
+                        "plan": plan,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }, on_conflict="user_id").execute()
+                    supa.table("credit_transactions").insert({
+                        "user_id": uid,
+                        "amount": new_balance,
+                        "type": "topup",
+                        "model": None,
+                    }).execute()
+                    logger.info(f"Subscription activated: user={uid} plan={plan} tokens={new_balance} order={order_id}")
             else:
                 logger.warning(f"No pending subscription for order {order_id}")
         except Exception as e:
@@ -1248,10 +1285,11 @@ async def verify_subscription(order_id: str, request: Request):
 
     plan = _get_plan_from_order(order_id)
 
-    # All possible IDR amounts per plan (monthly + yearly)
+    # All possible IDR amounts per plan (monthly + yearly) or topup packages
     PLAN_AMOUNTS = {
         "pro": [50000, 480000],
         "ultra": [300000, 2880000],
+        "topup": [10000, 40000, 100000],
     }
     amounts_to_try = PLAN_AMOUNTS.get(plan, [50000])
 
@@ -1311,19 +1349,38 @@ async def verify_subscription(order_id: str, request: Request):
                         }).execute()
                     # Sync token balance to user_credits
                     if uid:
-                        new_balance = PLAN_CREDITS.get(plan, 50)
-                        supa.table("user_credits").upsert({
-                            "user_id": uid,
-                            "balance": new_balance,
-                            "plan": plan,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }, on_conflict="user_id").execute()
-                        supa.table("credit_transactions").insert({
-                            "user_id": uid,
-                            "amount": new_balance,
-                            "type": "topup",
-                            "model": None,
-                        }).execute()
+                        if plan == "topup":
+                            # Topup: add tokens to existing balance
+                            tx_amount = int(last_tx.get("amount", 0))
+                            tokens_to_add = TOPUP_AMOUNT_TOKENS.get(tx_amount, max(1, tx_amount // 100))
+                            existing_bal = supa.table("user_credits").select("balance").eq("user_id", uid).execute()
+                            current_balance = existing_bal.data[0]["balance"] if existing_bal.data else 0
+                            new_balance = current_balance + tokens_to_add
+                            supa.table("user_credits").upsert({
+                                "user_id": uid,
+                                "balance": new_balance,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }, on_conflict="user_id").execute()
+                            supa.table("credit_transactions").insert({
+                                "user_id": uid,
+                                "amount": tokens_to_add,
+                                "type": "topup",
+                                "model": None,
+                            }).execute()
+                        else:
+                            new_balance = PLAN_CREDITS.get(plan, 50)
+                            supa.table("user_credits").upsert({
+                                "user_id": uid,
+                                "balance": new_balance,
+                                "plan": plan,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }, on_conflict="user_id").execute()
+                            supa.table("credit_transactions").insert({
+                                "user_id": uid,
+                                "amount": new_balance,
+                                "type": "topup",
+                                "model": None,
+                            }).execute()
                 except Exception as db_err:
                     logger.warning(f"DB update error: {db_err}")
             return JSONResponse({"status": "active", "plan": plan})

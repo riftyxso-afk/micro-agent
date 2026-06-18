@@ -11,8 +11,14 @@ import {
   Building2,
   ArrowUpRight,
   Star,
+  CreditCard,
+  Shield,
+  TrendingUp,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
+import { API_BASE_URL } from "@/lib/chatApi";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMenu } from "@/components/workspace/UserMenu";
@@ -136,6 +142,40 @@ const COMPARISON_MODELS = [
   { name: "Auto Mode", free: "—", pro: "3 ⚡", ultra: "3 ⚡" },
 ];
 
+const TOKEN_PACKAGES = [
+  {
+    id: "starter",
+    tokens: 100,
+    price: 10000,
+    perToken: 100,
+    badge: null,
+    color: "#6B7280",
+    desc: "Cukup untuk ~50–100 chat",
+  },
+  {
+    id: "popular",
+    tokens: 500,
+    price: 40000,
+    perToken: 80,
+    badge: "BEST VALUE",
+    color: "#6366F1",
+    desc: "Hemat 20%, cukup untuk ~250–500 chat",
+  },
+  {
+    id: "mega",
+    tokens: 1500,
+    price: 100000,
+    perToken: 67,
+    badge: "HEMAT 33%",
+    color: "#7C3AED",
+    desc: "Hemat 33%, cukup untuk ~750–1.500 chat",
+  },
+];
+
+const formatIDR = (n) => `Rp ${n.toLocaleString("id-ID")}`;
+
+const PAKASIR_SLUG = process.env.REACT_APP_PAKASIR_SLUG || "";
+
 export default function PricingPage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
@@ -143,6 +183,9 @@ export default function PricingPage() {
   const [activeDialog, setActiveDialog] = useState(null);
   const [billing, setBilling] = useState("monthly");
   const [openFaq, setOpenFaq] = useState(null);
+  const [selectedPkg, setSelectedPkg] = useState("popular");
+  const [topUpProcessing, setTopUpProcessing] = useState(false);
+  const { user } = useAuth();
   const { format, currency, loading: currencyLoading } = useCurrency();
 
   const handleNavChange = (navId) => {
@@ -163,6 +206,89 @@ export default function PricingPage() {
   const getPeriodLabel = (plan) => {
     if (plan.id === "free") return "selamanya";
     return billing === "yearly" ? "/ tahun" : "/ bulan";
+  };
+
+  const genOrderId = () => {
+    const ts = Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `MA-TOPUP-${ts}-${rand}`;
+  };
+
+  const handleTopUp = async () => {
+    if (!user) {
+      navigate("/auth", { state: { from: "/pricing" } });
+      return;
+    }
+    const pkg = TOKEN_PACKAGES.find((p) => p.id === selectedPkg);
+    if (!pkg) return;
+
+    if (!PAKASIR_SLUG) {
+      // Fallback: direct top-up via backend (for testing)
+      setTopUpProcessing(true);
+      try {
+        const session = await (
+          await import("@/lib/supabase")
+        ).supabase?.auth.getSession();
+        const authToken = session?.data?.session?.access_token;
+        const res = await fetch(`${API_BASE_URL}/api/credits/topup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
+          body: JSON.stringify({
+            user_id: user.id,
+            amount: pkg.tokens,
+            type: "topup",
+          }),
+        });
+        const data = await res.json();
+        if (data.balance != null) {
+          toast.success(`${pkg.tokens} token berhasil ditambahkan!`, {
+            description: `Saldo sekarang: ${data.balance} token`,
+          });
+        } else {
+          throw new Error(data.error || "Gagal top up");
+        }
+      } catch (err) {
+        toast.error("Gagal top up", { description: err.message });
+      } finally {
+        setTopUpProcessing(false);
+      }
+      return;
+    }
+
+    // Pakasir payment flow
+    setTopUpProcessing(true);
+    const orderId = genOrderId();
+    try {
+      const session = await (
+        await import("@/lib/supabase")
+      ).supabase?.auth.getSession();
+      const authToken = session?.data?.session?.access_token;
+
+      // Create pending order in backend
+      await fetch(`${API_BASE_URL}/api/subscriptions/create-pending`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({
+          order_id: orderId,
+          plan: "topup",
+          amount: pkg.price,
+        }),
+      });
+
+      // Redirect to Pakasir
+      const redirectUrl = `${window.location.origin}/topup/success?order=${orderId}&tokens=${pkg.tokens}`;
+      const url = `https://app.pakasir.com/pay/${PAKASIR_SLUG}/${pkg.price}?order_id=${orderId}&redirect=${encodeURIComponent(redirectUrl)}`;
+      window.location.href = url;
+    } catch (err) {
+      toast.error("Gagal memulai pembayaran", { description: err.message });
+      setTopUpProcessing(false);
+    }
   };
 
   const fadeUp = (delay = 0) =>
@@ -370,6 +496,86 @@ export default function PricingPage() {
                   <span className="text-center font-medium text-[#374151]">{row.ultra}</span>
                 </div>
               ))}
+            </div>
+          </motion.div>
+
+          {/* ── Token Top-Up ── */}
+          <motion.div {...fadeUp(0.22)} className="mt-12">
+            <h2
+              data-testid="pricing-topup-heading"
+              className="font-heading text-center text-lg font-semibold text-[#111111] sm:text-xl"
+            >
+              Top Up Token
+            </h2>
+            <p className="mt-1 text-center text-sm text-[#6B7280]">
+              Beli token tambahan kapan saja tanpa harus upgrade plan.
+            </p>
+
+            <div className="mx-auto mt-6 max-w-[640px]">
+              <div className="grid gap-3 sm:grid-cols-3">
+                {TOKEN_PACKAGES.map((pkg) => {
+                  const isSelected = selectedPkg === pkg.id;
+                  return (
+                    <button
+                      key={pkg.id}
+                      type="button"
+                      onClick={() => setSelectedPkg(pkg.id)}
+                      data-testid={`pricing-topup-pkg-${pkg.id}`}
+                      className={`relative rounded-2xl border p-4 text-left transition-all duration-200 ${
+                        isSelected
+                          ? "border-[#6366F1] bg-white shadow-[0_0_0_1px_#6366F1,0_4px_16px_rgba(99,102,241,0.1)]"
+                          : "border-[#E5E7EB] bg-white hover:border-[#D1D5DB] hover:shadow-[0_2px_8px_rgba(17,24,39,0.06)]"
+                      }`}
+                    >
+                      {pkg.badge && (
+                        <span
+                          className="absolute -top-2.5 left-4 rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                          style={{ background: pkg.color }}
+                        >
+                          {pkg.badge}
+                        </span>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <Zap size={14} strokeWidth={2} className="text-[#F59E0B]" />
+                            <span className="text-sm font-semibold text-[#111111]">
+                              {pkg.tokens.toLocaleString()} token
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-[#6B7280]">{pkg.desc}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#111111]">{formatIDR(pkg.price)}</p>
+                          <p className="text-[10px] text-[#9CA3AF]">{formatIDR(pkg.perToken)}/token</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={handleTopUp}
+                disabled={topUpProcessing}
+                data-testid="pricing-topup-cta"
+                className="ma-focus mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#111111] py-3 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(17,24,39,0.18)] transition-all duration-200 hover:bg-[#2D2D2D] hover:shadow-[0_6px_20px_rgba(17,24,39,0.25)] active:scale-[0.98] disabled:opacity-50"
+              >
+                {topUpProcessing ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Memproses...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard size={15} strokeWidth={1.75} />
+                    Bayar {formatIDR(TOKEN_PACKAGES.find((p) => p.id === selectedPkg)?.price || 0)}
+                  </>
+                )}
+              </button>
+              <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
+                Pembayaran via Pakasir · Token masuk otomatis
+              </p>
             </div>
           </motion.div>
 

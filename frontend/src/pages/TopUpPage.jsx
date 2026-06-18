@@ -97,7 +97,10 @@ export default function TopUpPage() {
   };
 
   const handleTopUp = async () => {
-    if (!user) return;
+    if (!user) {
+      navigate("/auth", { state: { from: "/topup" } });
+      return;
+    }
     const pkg = TOKEN_PACKAGES.find((p) => p.id === selectedPkg);
     if (!pkg) return;
 
@@ -161,10 +164,10 @@ export default function TopUpPage() {
         }),
       });
 
-      // Redirect to Pakasir
-      const callbackUrl = `${window.location.origin}/topup/success?order=${orderId}&tokens=${pkg.tokens}`;
-      const pakasirUrl = `https://pakasir.com/${PAKASIR_SLUG}/pay?order_id=${orderId}&amount=${pkg.price}&callback_url=${encodeURIComponent(callbackUrl)}&name=${encodeURIComponent(user.email || "User")}`;
-      window.location.href = pakasirUrl;
+      // Redirect to Pakasir with correct URL format
+      const redirectUrl = `${window.location.origin}/topup/success?order=${orderId}&tokens=${pkg.tokens}`;
+      const url = `https://app.pakasir.com/pay/${PAKASIR_SLUG}/${pkg.price}?order_id=${orderId}&redirect=${encodeURIComponent(redirectUrl)}`;
+      window.location.href = url;
     } catch (err) {
       toast.error("Gagal memulai pembayaran", { description: err.message });
       setProcessing(false);
@@ -330,6 +333,21 @@ export default function TopUpPage() {
           </motion.div>
         </div>
       </main>
+
+      <MobileNav activeNav={activeNav} onNavChange={handleNavChange} />
+
+      <HistoryDialog
+        open={activeDialog === "history"}
+        onOpenChange={(open) => setActiveDialog(open ? "history" : null)}
+      />
+      <ProjectsDialog
+        open={activeDialog === "projects"}
+        onOpenChange={(open) => setActiveDialog(open ? "projects" : null)}
+      />
+      <MoreDialog
+        open={activeDialog === "more"}
+        onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
+      />
     </div>
   );
 }

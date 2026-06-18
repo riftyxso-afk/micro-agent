@@ -16,6 +16,7 @@ import EmailVerificationPage from "@/pages/EmailVerificationPage";
 import HelpPage from "@/pages/HelpPage";
 import ImageGalleryPage from "@/pages/ImageGalleryPage";
 import TopUpPage from "@/pages/TopUpPage";
+import TopUpSuccessPage from "@/pages/TopUpSuccessPage";
 import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
           <Route path="/help" element={<HelpPage />} />
           <Route path="/gallery" element={<ImageGalleryPage />} />
           <Route path="/topup" element={<TopUpPage />} />
+          <Route path="/topup/success" element={<TopUpSuccessPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster
