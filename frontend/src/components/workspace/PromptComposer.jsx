@@ -25,6 +25,7 @@ import {
   ChevronRight,
   ChevronLeft,
   BookOpen,
+  Cpu,
 } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 import { ToolsMenu } from "@/components/workspace/ToolsMenu";
@@ -187,6 +188,7 @@ export const PromptComposer = ({
   onRagToggle,
   ragEnabled,
 }) => {
+  const navigate = useNavigate();
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
   const [value, setValue] = useState(initialValue);
@@ -734,6 +736,24 @@ export const PromptComposer = ({
               </TooltipContent>
             </Tooltip>
           )}
+
+          {/* Supercomputer / Agentic AI — navigate to /supercomputer */}
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-testid="prompt-composer-supercomputer-button"
+                aria-label="Supercomputer (Agentic AI)"
+                onClick={() => navigate("/supercomputer")}
+                className="ma-focus grid h-9 w-9 place-items-center rounded-xl text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F3F4F6] hover:text-[#111111] active:scale-[0.95]"
+              >
+                <Cpu size={18} strokeWidth={1.75} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              Supercomputer (Agentic AI)
+            </TooltipContent>
+          </Tooltip>
 
           {/* Attach — always visible */}
           <IconAction

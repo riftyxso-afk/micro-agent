@@ -73,7 +73,7 @@ ARCH="$(uname -m)"
 echo "  ${GREEN}✓${NC} OS: $OS ($ARCH)"
 
 # ── source ──
-if [ -n "$LOCAL" ] || [ -d "$(dirname "$0)" ]; then
+if [ -n "$LOCAL" ] || [ -d "$(dirname "$0")" ]; then
     # Local install (dev mode)
     CLI_DIR="$(cd "$(dirname "$0")" && pwd)"
     echo "  ${GREEN}✓${NC} Using local source: $CLI_DIR"

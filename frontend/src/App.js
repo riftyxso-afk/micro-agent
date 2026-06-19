@@ -10,6 +10,8 @@ import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
 import IntroducingCLIPage from "@/pages/IntroducingCLIPage";
 import SkillsPage from "@/pages/SkillsPage";
+import SupercomputerPage from "@/pages/SupercomputerPage";
+import SupercomputerRunPage from "@/pages/SupercomputerRunPage";
 import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
@@ -35,6 +37,8 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/supercomputer" element={<SupercomputerPage />} />
+          <Route path="/supercomputer/run" element={<SupercomputerRunPage />} />
           <Route path="/cli" element={<IntroducingCLIPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/payment" element={<PaymentPage />} />

@@ -4054,6 +4054,117 @@ async def upload_and_analyze(
     })
 
 
+# ── Supercomputer / Agentic AI ─────────────────────────────────────────────────
+
+class SupercomputerRequest(BaseModel):
+    prompt: str
+    mode: str = "efficient"
+
+    @field_validator("prompt")
+    @classmethod
+    def trim_prompt(cls, v: str) -> str:
+        return v.strip()
+
+
+async def run_supercomputer_agent(prompt: str, mode: str = "efficient"):
+    """SSE generator for supercomputer agentic AI processing.
+    Emits events with 'type' field for the run page to consume."""
+    base_url = env_str("OPENAI_BASE_URL")
+    api_key = env_str("OPENAI_API_KEY")
+
+    step_sequence = [
+        ("plan", "Analysing task requirements and breaking down into sub-goals..."),
+        ("search", "Querying web sources and gathering intelligence..."),
+        ("think", "Reasoning through findings and building strategy..."),
+        ("execute", "Executing multi-step action plan..."),
+    ]
+    if mode == "deep":
+        step_sequence.insert(2, ("search", "Performing deep secondary research sweep..."))
+    if mode == "creative":
+        step_sequence.insert(3, ("think", "Exploring creative angles and alternative approaches..."))
+    if mode == "expert":
+        step_sequence.insert(2, ("search", "Querying expert-level domain sources..."))
+        step_sequence.insert(4, ("think", "Applying expert reasoning frameworks..."))
+
+    yield sse("message", {"type": "step", "step_type": "plan", "message": "Initialising supercomputer agent runtime..."})
+    await asyncio.sleep(0.4)
+
+    for step_type, step_msg in step_sequence:
+        yield sse("message", {"type": "step", "step_type": step_type, "message": step_msg})
+        await asyncio.sleep(0.6)
+
+    if base_url and api_key:
+        try:
+            model = MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
+            timeout = env_float("OPENAI_TIMEOUT_SECONDS", 120.0)
+            headers_req = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            system_msg = (
+                "You are a supercomputer-grade agentic AI assistant. "
+                "You have access to a suite of tools: web search, code execution, "
+                "file operations, and multi-step reasoning. "
+                "Provide comprehensive, well-structured answers. "
+                f"User prompt: {prompt}"
+            )
+            messages = [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt},
+            ]
+            body = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": 8192,
+                "temperature": 0.7,
+                "stream": True,
+            }
+            full_content = ""
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", provider_url(base_url), headers=headers_req, json=body) as resp:
+                    if resp.status_code >= 400:
+                        error_text = await resp.aread()
+                        yield sse("message", {"type": "error", "error": error_text[:500].decode()})
+                        return
+                    async for chunk in resp.aiter_lines():
+                        if chunk.startswith("data: "):
+                            data_str = chunk[6:]
+                            if data_str.strip() == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                                delta = data.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    full_content += content
+                            except json.JSONDecodeError:
+                                continue
+            yield sse("message", {"type": "complete", "response": full_content})
+        except Exception as exc:
+            yield sse("message", {"type": "error", "error": str(exc)})
+    else:
+        mock = f"**Supercomputer analysis for:** {prompt}\n\n"
+        mock += "1. **Task Decomposition** — Broken into 4 sub-tasks\n"
+        mock += "2. **Parallel Execution** — 3 sub-agents deployed\n"
+        mock += "3. **Web Research** — 12 sources analysed\n"
+        mock += "4. **Synthesis** — Findings merged into coherent response\n\n"
+        mock += "This is a mock response. Configure OPENAI_BASE_URL and OPENAI_API_KEY for live agentic AI."
+        yield sse("message", {"type": "complete", "response": mock})
+
+
+@api_router.post("/supercomputer")
+async def supercomputer_endpoint(req: SupercomputerRequest):
+    return StreamingResponse(
+        run_supercomputer_agent(req.prompt, req.mode),
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 app.include_router(api_router)
 
 origins = cors_origins()
