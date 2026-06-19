@@ -157,8 +157,8 @@ def main():
         os.environ["OPENAI_MODEL"] = args.model
 
     if not os.environ.get("OPENAI_BASE_URL") or not os.environ.get("OPENAI_API_KEY"):
-        print("\033[91mERROR:\033[0m Set \033[93mOPENAI_BASE_URL\033[0m dan \033[93mOPENAI_API_KEY\033[0m di .env", file=sys.stderr)
-        sys.exit(1)
+        api_base = os.environ.get("API_BASE_URL", "http://localhost:8001")
+        print(f"  \033[90mBackend API:\033[0m \033[93m{api_base}\033[0m")
 
     project_dir = os.environ.get("MICROAGENT_PROJECT_DIR") or str(Path.cwd())
 

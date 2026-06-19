@@ -11,9 +11,18 @@ from textual.binding import Binding
 from rich.text import Text
 from rich.markdown import Markdown
 
-from .llm import stream_chat
 from .session import load_session, save_session
 from .agent import run_agent, SYSTEM_PROMPT
+
+def _env(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+# Auto-detect: use backend API if available, else fallback to direct LLM
+if _env("API_BASE_URL") or not (_env("OPENAI_BASE_URL") and _env("OPENAI_API_KEY")):
+    from . import backend_api as provider
+else:
+    from . import llm as provider
+stream_chat = provider.stream_chat
 
 VERSION = "1.0.0"
 
@@ -39,10 +48,6 @@ def load_dotenv(path: str = None):
             continue
         k, _, v = line.partition("=")
         os.environ.setdefault(k.strip(), v.strip())
-
-
-def env(key: str, default: str = "") -> str:
-    return os.environ.get(key, "").strip() or default
 
 
 SLASH_COMMANDS = {
@@ -147,17 +152,19 @@ class MicroCLI(App):
         load_dotenv()
         load_dotenv(Path.cwd() / ".env")
 
-        if not env("OPENAI_BASE_URL") or not env("OPENAI_API_KEY"):
-            print("\033[91mERROR:\033[0m Set OPENAI_BASE_URL and OPENAI_API_KEY in .env", file=sys.stderr)
-            sys.exit(1)
+        api_base = _env("API_BASE_URL", "http://localhost:8001")
+        if not _env("OPENAI_BASE_URL") and not _env("OPENAI_API_KEY"):
+            print(f"  \033[90mBackend API:\033[0m \033[93m{api_base}\033[0m")
+        else:
+            print(f"  \033[90mProvider:\033[0m \033[93m{_env('OPENAI_MODEL', '?')}\033[0m")
 
-        self.project_dir = env("MICROAGENT_PROJECT_DIR") or str(Path.cwd())
+        self.project_dir = _env("MICROAGENT_PROJECT_DIR") or str(Path.cwd())
         self.messages = load_session(self.project_dir)
         has_sys = any(m.get("role") == "system" for m in self.messages)
         if not has_sys:
             self.messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
-        self.model_id = env("OPENAI_MODEL", "deepseek-v4-flash")
+        self.model_id = _env("OPENAI_MODEL", "deepseek-v4-flash")
         self.streaming = False
 
     def compose(self):
