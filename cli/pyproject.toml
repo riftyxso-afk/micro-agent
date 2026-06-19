@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microagent-cli"
+version = "1.0.0"
+description = "MicroAgent CLI — AI coding assistant with OpenCode-style TUI"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "rich>=13",
+    "textual>=8",
+    "httpx>=0.27",
+    "prompt-toolkit>=3",
+]
+
+[project.scripts]
+microagent = "microagent_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["microagent_cli*"]
+
+[tool.setuptools.package-dir]
+"" = "src"

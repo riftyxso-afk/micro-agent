@@ -11,7 +11,7 @@ const INSTALL_METHODS = [
     id: "local",
     label: "Local",
     icon: Terminal,
-    cmd: "git clone https://github.com/riftyxso-afk/micro-agent.git && cd micro-agent/Micro-Agent-CLI && pip install -e .",
+    cmd: "git clone https://github.com/riftyxso-afk/micro-agent.git && cd micro-agent/cli && pip install -e .",
   },
   {
     id: "pip",
@@ -23,7 +23,7 @@ const INSTALL_METHODS = [
     id: "curl",
     label: "curl",
     icon: Package,
-    cmd: 'curl -fsSL https://github.com/riftyxso-afk/micro-agent/raw/main/Micro-Agent-CLI/install.sh | bash',
+    cmd: 'curl -fsSL https://github.com/riftyxso-afk/micro-agent/raw/main/cli/install.sh | bash',
     disabled: true,
   },
   {

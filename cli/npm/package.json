@@ -1,0 +1,14 @@
+{
+  "name": "microagent-cli",
+  "version": "1.0.0",
+  "description": "MicroAgent CLI — AI coding assistant (installs Python package)",
+  "bin": {
+    "microagent": "./microagent.js"
+  },
+  "scripts": {
+    "postinstall": "node ./install.js",
+    "install": "node ./install.js"
+  },
+  "keywords": ["ai", "cli", "coding", "assistant"],
+  "license": "MIT"
+}

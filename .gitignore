@@ -57,6 +57,7 @@ __pycache__/
 *pyc*
 venv/
 .venv/
+*.egg-info
 
 # Development tools
 chainlit.md

@@ -1,0 +1,10 @@
+#!/bin/bash
+# Try pip-installed microagent first, else use source directly
+if command -v microagent 2>/dev/null && [ "$(which microagent)" != "$0" ]; then
+    exec microagent "$@"
+fi
+dir="$(dirname "$(readlink -f "$0")")"
+if [ -f "$dir/src/microagent_cli/cli.py" ]; then
+    exec python3 -m microagent_cli.cli "$@"
+fi
+exec python3 "$dir/main.py" "$@"
