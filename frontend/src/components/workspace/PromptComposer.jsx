@@ -737,21 +737,25 @@ export const PromptComposer = ({
             </Tooltip>
           )}
 
-          {/* Supercomputer / Agentic AI — navigate to /supercomputer */}
+          {/* Supercomputer / Agentic AI — locked behind Pro */}
           <Tooltip delayDuration={200}>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 data-testid="prompt-composer-supercomputer-button"
-                aria-label="Supercomputer (Agentic AI)"
-                onClick={() => navigate("/supercomputer")}
-                className="ma-focus grid h-9 w-9 place-items-center rounded-xl text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F3F4F6] hover:text-[#111111] active:scale-[0.95]"
+                aria-label={isPro ? "Supercomputer (Agentic AI)" : "Supercomputer — Pro feature"}
+                onClick={() => navigate(isPro ? "/supercomputer" : "/pricing")}
+                className={`ma-focus grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
+                  isPro
+                    ? "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
+                    : "text-[#9CA3AF] hover:bg-[#FEF3C7] hover:text-[#B45309]"
+                }`}
               >
-                <Cpu size={18} strokeWidth={1.75} />
+                {isPro ? <Cpu size={18} strokeWidth={1.75} /> : <Lock size={18} strokeWidth={1.75} />}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Supercomputer (Agentic AI)
+              {isPro ? "Supercomputer (Agentic AI)" : "Supercomputer — Pro feature"}
             </TooltipContent>
           </Tooltip>
 

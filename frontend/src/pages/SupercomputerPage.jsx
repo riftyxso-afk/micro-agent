@@ -1,5 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useSubscription } from "@/lib/useSubscription";
 
 const MODES = [
   { id: "efficient", label: "Efficient mode", icon: "⚡" },
@@ -51,6 +52,7 @@ const SIDEBAR_ICONS = [
 
 export default function SupercomputerPage() {
   const navigate = useNavigate();
+  const { isPro, loading } = useSubscription();
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(MODES[0]);
   const [showModes, setShowModes] = useState(false);
@@ -60,6 +62,13 @@ export default function SupercomputerPage() {
     if (!input.trim()) return;
     navigate(`/supercomputer/run?task=${encodeURIComponent(input)}&mode=${mode.id}`);
   }
+
+  useEffect(() => {
+    if (!loading && !isPro) navigate("/pricing", { replace: true });
+  }, [loading, isPro, navigate]);
+
+  if (loading) return <div className="min-h-dvh bg-[#111]" />;
+  if (!isPro) return null;
 
   return (
     <div className="sc2-layout">
