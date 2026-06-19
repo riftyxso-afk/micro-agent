@@ -23,15 +23,13 @@ const INSTALL_METHODS = [
     id: "curl",
     label: "curl",
     icon: Package,
-    cmd: 'curl -fsSL https://github.com/riftyxso-afk/micro-agent/raw/main/cli/install.sh | bash',
-    disabled: true,
+    cmd: 'curl -fsSL https://raw.githubusercontent.com/riftyxso-afk/micro-agent/main/cli/install.sh | bash',
   },
   {
     id: "npm",
     label: "npm",
     icon: Monitor,
-    cmd: "npm install /path/to/Micro-Agent-CLI/npm",
-    disabled: true,
+    cmd: "npm install -g /path/to/micro-agent/cli/npm",
   },
 ];
 
