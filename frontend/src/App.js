@@ -8,6 +8,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import PricingPage from "@/pages/PricingPage";
 import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
+import IntroducingCLIPage from "@/pages/IntroducingCLIPage";
 import SkillsPage from "@/pages/SkillsPage";
 import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
@@ -34,6 +35,7 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/cli" element={<IntroducingCLIPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/payment" element={<PaymentPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />

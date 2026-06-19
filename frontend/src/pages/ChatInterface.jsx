@@ -93,6 +93,7 @@ export default function ChatInterface() {
   const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
   const [sessionId, setSessionId] = useState(urlSessionId || null);
   const [tokenBalance, setTokenBalance] = useState(null);
+  const effectiveTokenBalance = user ? tokenBalance : guestRemaining;
   const [loadingSession, setLoadingSession] = useState(false);
   const savedMsgCountRef = useRef(0);
 
@@ -1211,7 +1212,7 @@ export default function ChatInterface() {
         open={activeDialog === "more"}
         onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
       />
-      <LowTokenPopup tokenBalance={tokenBalance} />
+      <LowTokenPopup tokenBalance={effectiveTokenBalance} isGuest={!user} />
       <RagPanel open={showRagPanel} onClose={() => setShowRagPanel(false)} />
     </div>
   );

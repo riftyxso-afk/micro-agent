@@ -14,6 +14,7 @@ import { HistoryDialog } from "@/components/workspace/HistoryDialog";
 import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
 import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
+import { CLIBanner } from "@/components/workspace/CLIBanner";
 import { getModelById, DEFAULT_MODEL_ID, QUICK_CHIPS } from "@/lib/workspaceData";
 import { API_BASE_URL } from "@/lib/chatApi";
 
@@ -36,11 +37,12 @@ export default function HomeWorkspace() {
   const [autoMode, setAutoMode] = useState(initialAutoMode);
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
-  const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount } = useAuth();
+  const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount, guestRemaining } = useAuth();
   const { plan, isPro, isUltra } = useSubscription();
 
   // Fetch token balance
   const [tokenBalance, setTokenBalance] = useState(null);
+  const effectiveTokenBalance = user ? tokenBalance : guestRemaining;
   const fetchTokenBalance = useCallback(async () => {
     if (!user) { setTokenBalance(null); return; }
     try {
@@ -204,6 +206,7 @@ export default function HomeWorkspace() {
         }`}
       >
         <div className="w-full max-w-[680px] -translate-y-[2vh]">
+          <CLIBanner />
           <motion.div {...fadeUp(0)} className="text-center">
             {/* Plan badge */}
             <div className="mb-4 flex justify-center">
@@ -291,7 +294,7 @@ export default function HomeWorkspace() {
         open={activeDialog === "more"}
         onOpenChange={(open) => setActiveDialog(open ? "more" : null)}
       />
-      <LowTokenPopup tokenBalance={tokenBalance} />
+      <LowTokenPopup tokenBalance={effectiveTokenBalance} isGuest={!user} />
     </div>
   );
 }

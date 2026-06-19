@@ -3,17 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, X, ArrowRight, AlertTriangle } from "lucide-react";
 
-export const LowTokenPopup = ({ tokenBalance, onDismiss }) => {
+export const LowTokenPopup = ({ tokenBalance, onDismiss, isGuest }) => {
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (dismissed) return;
-    if (tokenBalance != null && tokenBalance <= 5 && tokenBalance >= 0) {
+    const threshold = isGuest ? 2 : 5;
+    if (tokenBalance != null && tokenBalance <= threshold && tokenBalance >= 0) {
       setShow(true);
     }
-  }, [tokenBalance, dismissed]);
+  }, [tokenBalance, dismissed, isGuest]);
 
   const handleDismiss = () => {
     setShow(false);
@@ -21,9 +22,9 @@ export const LowTokenPopup = ({ tokenBalance, onDismiss }) => {
     onDismiss?.();
   };
 
-  const handleTopUp = () => {
+  const handleAction = () => {
     setShow(false);
-    navigate("/topup");
+    navigate(isGuest ? "/auth" : "/topup", { state: isGuest ? { tab: "login" } : undefined });
   };
 
   return (
@@ -67,14 +68,22 @@ export const LowTokenPopup = ({ tokenBalance, onDismiss }) => {
 
               {/* Title */}
               <h2 className="text-center font-heading text-lg font-semibold text-[#111111]">
-                {tokenBalance === 0
+                {isGuest && tokenBalance === 0
+                  ? "Guest Limit Habis!"
+                  : isGuest
+                  ? `Sisa ${tokenBalance} Prompt`
+                  : tokenBalance === 0
                   ? "Token Habis!"
                   : `Tinggal ${tokenBalance} Token`}
               </h2>
 
               {/* Description */}
               <p className="mt-2 text-center text-sm leading-relaxed text-[#6B7280]">
-                {tokenBalance === 0
+                {isGuest && tokenBalance === 0
+                  ? "Kamu sudah mencapai batas 10 prompt gratis. Sign in untuk melanjutkan chat tanpa batas."
+                  : isGuest
+                  ? "Prompt gratis kamu hampir habis. Sign in untuk mendapatkan token gratis dan melanjutkan chat."
+                  : tokenBalance === 0
                   ? "Token kamu sudah habis. Top up token untuk melanjutkan chat dengan AI."
                   : tokenBalance <= 2
                   ? "Token hampir habis! Top up sekarang agar bisa terus chat tanpa hambatan."
@@ -88,17 +97,17 @@ export const LowTokenPopup = ({ tokenBalance, onDismiss }) => {
                   : "bg-[#FEF9C3] text-[#854D0E]"
               }`}>
                 <Zap size={13} strokeWidth={2} />
-                <span className="text-sm font-semibold">{tokenBalance} token tersisa</span>
+                <span className="text-sm font-semibold">{isGuest && tokenBalance === 0 ? "0 prompt tersisa" : isGuest ? `${tokenBalance} prompt tersisa` : `${tokenBalance} token tersisa`}</span>
               </div>
 
               {/* CTA buttons */}
               <div className="mt-5 space-y-2.5">
                 <button
-                  onClick={handleTopUp}
+                  onClick={handleAction}
                   className="ma-focus flex w-full items-center justify-center gap-2 rounded-2xl bg-[#111111] py-3 text-[14px] font-semibold text-white shadow-[0_4px_14px_rgba(17,24,39,0.18)] transition-all duration-200 hover:bg-[#2D2D2D] active:scale-[0.98]"
                 >
                   <Zap size={15} strokeWidth={2} />
-                  Top Up Token
+                  {isGuest ? "Sign In" : "Top Up Token"}
                   <ArrowRight size={14} strokeWidth={2} />
                 </button>
                 <button
