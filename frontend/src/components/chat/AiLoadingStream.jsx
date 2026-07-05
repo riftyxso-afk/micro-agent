@@ -44,7 +44,7 @@ export const AiLoadingStream = ({
 
   // Priority order: writing > searching > thinking (mutual exclusive)
   if (isWriting) {
-    activePhases.push({ id: "writing", label: "Writing", icon: "spinner" });
+    activePhases.push({ id: "writing", label: "Writing", icon: "writing" });
   } else if (isSearching) {
     const searchLabels = {
       searching: "Searching the web",
@@ -57,12 +57,12 @@ export const AiLoadingStream = ({
       icon: "globe",
     });
   } else if (isThinking) {
-    activePhases.push({ id: "thinking", label: "Thinking", icon: "spinner" });
+    activePhases.push({ id: "thinking", label: "Thinking", icon: "brain" });
   }
 
   // Fallback: if no phases detected but still generating
   if (activePhases.length === 0) {
-    activePhases.push({ id: "thinking", label: "Thinking", icon: "spinner" });
+    activePhases.push({ id: "thinking", label: "Thinking", icon: "brain" });
   }
 
   const hasDetail =
@@ -96,20 +96,32 @@ export const AiLoadingStream = ({
     </svg>
   );
 
+  const WritingIcon = () => (
+    <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+    </svg>
+  );
+
+  const getIcon = (icon) => {
+    if (icon === "globe") return <GlobeIcon />;
+    if (icon === "writing") return <WritingIcon />;
+    return <BrainIcon />;
+  };
+
   return (
     <div className="mb-3 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
       {/* ── Status bars ────────────────────────────────────────── */}
       <div className="px-3 py-2.5 space-y-1">
         {activePhases.map((p, i) => (
           <div key={p.id} className="flex items-center gap-2">
-            <span className={p.icon === "globe" ? "shrink-0 text-[#6B7280]" : "ma-icon-shimmer shrink-0 text-[#6B7280]"}>
-              {p.icon === "globe" ? <GlobeIcon /> : <BrainIcon />}
+            <span className="ma-icon-shimmer shrink-0 text-[#6B7280]">
+              {getIcon(p.icon)}
             </span>
-            <span className={`text-[12px] font-medium ${p.icon !== "globe" ? "ma-label-shimmer" : "text-[#374151]"}`}>
+            <span className="text-[12px] font-medium ma-label-shimmer">
               {p.label}
             </span>
-            {/* shimmer bar — only for thinking phase */}
-            {p.icon !== "globe" && <span className="ml-1 flex-1 h-2 rounded-full ma-label-shimmer" />}
+            {/* shimmer bar — all phases */}
+            <span className="ml-1 flex-1 h-2 rounded-full ma-bar-shimmer" />
             {/* Expand/cancel only on last row */}
             {i === activePhases.length - 1 && (
               <>

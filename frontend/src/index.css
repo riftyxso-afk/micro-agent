@@ -164,6 +164,18 @@ code {
   animation: ma-label-shimmer 2s linear infinite;
 }
 
+/* Shimmer bar (non-text element) */
+.ma-bar-shimmer {
+  background: linear-gradient(
+    90deg,
+    #E5E7EB 40%,
+    #D1D5DB 50%,
+    #E5E7EB 60%
+  );
+  background-size: 200% 100%;
+  animation: ma-label-shimmer 2s linear infinite;
+}
+
 .ma-icon-shimmer {
   animation: ma-label-shimmer-icon 1.6s ease-in-out infinite;
 }
