@@ -1,0 +1,10 @@
+/* Override Prism Tomorrow theme backgrounds */
+code[class*="language-"],
+pre[class*="language-"] {
+  background: transparent !important;
+}
+
+pre[class*="language-"] {
+  margin: 0 !important;
+  padding: 1rem !important;
+}

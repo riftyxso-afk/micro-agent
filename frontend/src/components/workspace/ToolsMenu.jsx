@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Settings2, Globe, Brain, Telescope, Zap, Check, Power, Sparkles, GraduationCap, Users, ChevronRight, X, Plus } from "lucide-react";
+import { Settings2, Globe, Brain, Telescope, Zap, Check, Sparkles, GraduationCap, Users, ChevronRight, X, Plus, ArrowLeftRight } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 
 const SEARCH_MODES = [
-  { id: "off",      label: "Off",      Icon: Power,        description: "LLM knowledge only", webSearch: false },
   { id: "web",      label: "Web",      Icon: Globe,        description: "Search the web", webSearch: true },
-  { id: "expert",   label: "Expert",   Icon: Sparkles,     description: "In-depth analysis", webSearch: false, badge: "NEW" },
+  { id: "expert",   label: "Expert",   Icon: Sparkles,     description: "In-depth analysis", webSearch: true, badge: "NEW" },
   { id: "academic", label: "Academic", Icon: GraduationCap,description: "Research papers", webSearch: true },
   { id: "social",   label: "Social",   Icon: Users,        description: "Community opinions", webSearch: true },
 ];
@@ -30,17 +29,17 @@ const PANELS = {
  *  activeSkill, onSkillSelect, onSkillClear
  */
 export const ToolsMenu = ({
-  searchMode = "off",
-  onSearchModeChange,
   reasoningEnabled = true,
   deepResearchMode = false,
   onDeepResearchToggle,
   activeSkill = null,
   onSkillSelect,
   onSkillClear,
+  comparisonEnabled = false,
+  onComparisonToggle,
 }) => {
   const [open, setOpen] = useState(false);
-  const [panel, setPanel] = useState(null); // 'search' | 'ai' | 'skills'
+  const [panel, setPanel] = useState(null); // 'ai' | 'skills' (search removed)
   const ref = useRef(null);
 
   // Close on outside click
@@ -58,8 +57,7 @@ export const ToolsMenu = ({
 
   const togglePanel = (p) => setPanel((prev) => (prev === p ? null : p));
 
-  const currentMode = SEARCH_MODES.find((m) => m.id === searchMode) || SEARCH_MODES[0];
-  const hasActive = searchMode !== "off" || reasoningEnabled || deepResearchMode || !!activeSkill;
+  const hasActive = reasoningEnabled || deepResearchMode || !!activeSkill || comparisonEnabled;
 
   return (
     <div className="relative" ref={ref}>
@@ -74,30 +72,6 @@ export const ToolsMenu = ({
             <div className="border-b border-[#F3F4F6] px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Tools</p>
             </div>
-
-            {/* Search Mode row */}
-            <button
-              type="button"
-              onClick={() => togglePanel(PANELS.search)}
-              className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F7F7F8] ${
-                panel === PANELS.search ? "bg-[#F7F7F8]" : ""
-              }`}
-            >
-              <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                searchMode !== "off" ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-              }`}>
-                <Globe size={14} strokeWidth={1.75} />
-              </span>
-              <span className="flex-1">
-                <span className="block text-[13px] font-medium text-[#111111]">Search Mode</span>
-                <span className={`block text-[11px] ${
-                  searchMode !== "off" ? "text-[#3B6EF6]" : "text-[#9CA3AF]"
-                }`}>{currentMode.label}</span>
-              </span>
-              <ChevronRight size={13} strokeWidth={1.75} className={`text-[#D1D5DB] transition-transform ${
-                panel === PANELS.search ? "rotate-90" : ""
-              }`} />
-            </button>
 
             {/* AI Mode row */}
             <button
@@ -124,6 +98,30 @@ export const ToolsMenu = ({
                 panel === PANELS.ai ? "rotate-90" : ""
               }`} />
             </button>
+
+            {/* Compare toggle */}
+            {onComparisonToggle && (
+              <button
+                type="button"
+                onClick={() => onComparisonToggle()}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F7F7F8] ${
+                  comparisonEnabled ? "bg-[#F7F7F8]" : ""
+                }`}
+              >
+                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
+                  comparisonEnabled ? "bg-[#6366F1] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
+                }`}>
+                  <ArrowLeftRight size={14} strokeWidth={1.75} />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-[13px] font-medium text-[#111111]">Compare</span>
+                  <span className={`block text-[11px] ${
+                    comparisonEnabled ? "text-[#6366F1]" : "text-[#9CA3AF]"
+                  }`}>{comparisonEnabled ? "ON" : "OFF"}</span>
+                </span>
+                {comparisonEnabled && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[#6366F1]" />}
+              </button>
+            )}
 
             {/* Skills row */}
             <button
@@ -156,49 +154,6 @@ export const ToolsMenu = ({
               className="ml-2 max-h-[70vh] w-[min(220px,calc(100vw-280px))] overflow-y-auto rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_32px_rgba(17,24,39,0.12)]"
               style={{ animation: "slideUpFade 0.12s ease-out" }}
             >
-              {/* Search Mode panel */}
-              {panel === PANELS.search && (
-                <>
-                  <div className="border-b border-[#F3F4F6] px-3 py-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Search Mode</p>
-                  </div>
-                  <div className="py-1">
-                    {SEARCH_MODES.map((mode) => {
-                      const MIcon = mode.Icon;
-                      const isActive = searchMode === mode.id;
-                      return (
-                        <button
-                          key={mode.id}
-                          type="button"
-                          onClick={() => { onSearchModeChange?.(mode); }}
-                          className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
-                            isActive ? "bg-[#EFF4FF]" : "hover:bg-[#F7F7F8]"
-                          }`}
-                        >
-                          <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-                            isActive ? "bg-[#3B6EF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                          }`}>
-                            <MIcon size={12} strokeWidth={1.75} />
-                          </span>
-                          <span className="flex-1">
-                            <span className={`flex items-center gap-1 text-[13px] font-medium ${
-                              isActive ? "text-[#3B6EF6]" : "text-[#111111]"
-                            }`}>
-                              {mode.label}
-                              {mode.badge && (
-                                <span className="rounded-full bg-[#EFF4FF] px-1.5 text-[9px] font-semibold text-[#3B6EF6]">{mode.badge}</span>
-                              )}
-                            </span>
-                            <span className="block text-[10px] text-[#9CA3AF]">{mode.description}</span>
-                          </span>
-                          {isActive && <Check size={12} strokeWidth={2.5} className="shrink-0 text-[#3B6EF6]" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
               {/* AI Mode panel */}
               {panel === PANELS.ai && (
                 <>

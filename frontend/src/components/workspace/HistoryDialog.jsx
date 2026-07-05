@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,19 +13,26 @@ import {
   Search,
   X,
   Loader2,
+  MoreHorizontal,
+  Wand2,
+  Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getModelById, DEFAULT_MODEL_ID } from "@/lib/workspaceData";
 import { ModelIcon } from "@/components/workspace/ModelIcon";
 import { useAuth } from "@/lib/AuthContext";
-import { fetchSessions, isSupabaseEnabled } from "@/lib/supabase";
+import { fetchSessions, isSupabaseEnabled, deleteSession } from "@/lib/supabase";
+import { API_BASE_URL } from "@/lib/chatApi";
 
 export const HistoryDialog = ({ open, onOpenChange }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [query, setQuery] = useState("");
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(null); // session.id
+  const [improvingId, setImprovingId] = useState(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -120,29 +127,81 @@ export const HistoryDialog = ({ open, onOpenChange }) => {
           ) : (
             filtered.map((session, idx) => {
               const model = getModelById(session.model_id || DEFAULT_MODEL_ID);
+              const isMenuOpen = menuOpen === session.id;
               return (
-                <button key={session.id} type="button" data-testid={`history-item-${idx}`}
-                  onClick={() => openChat(session)}
-                  className="ma-focus flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.99]"
-                >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[#F0F1F3] bg-white">
-                    <MessageSquare size={15} strokeWidth={1.75} className="text-[#6B7280]" />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium text-[#111111]">{session.title || "Untitled"}</span>
-                    <span className="mt-0.5 flex items-center gap-2 text-xs text-[#9CA3AF]">
-                      <span className="flex items-center gap-1">
-                        <ModelIcon model={model} size={16} />
-                        {model.shortName}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={11} strokeWidth={1.75} />
-                        {formatDate(session.updated_at)}
+                <div key={session.id} className="group relative">
+                  <button type="button" data-testid={`history-item-${idx}`}
+                    onClick={() => openChat(session)}
+                    className="ma-focus flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.99]"
+                  >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[#F0F1F3] bg-white">
+                      <MessageSquare size={13} strokeWidth={1.75} className="text-[#6B7280]" />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[13px] font-medium text-[#111111]">{session.title || "Untitled"}</span>
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#9CA3AF]">
+                        <ModelIcon model={model} size={12} />
+                        <span>{model.shortName}</span>
+                        <span>·</span>
+                        <Clock size={10} strokeWidth={1.75} />
+                        <span>{formatDate(session.updated_at)}</span>
                       </span>
                     </span>
-                  </span>
-                  <ChevronRight size={15} strokeWidth={1.75} className="shrink-0 text-[#D1D5DB]" />
-                </button>
+                  </button>
+                  {/* "..." menu — visible on hover */}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="relative" ref={isMenuOpen ? menuRef : null}>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setMenuOpen(isMenuOpen ? null : session.id); }}
+                        className="grid h-6 w-6 place-items-center rounded-md text-[#9CA3AF] hover:bg-[#F0F1F3] hover:text-[#111111]"
+                      >
+                        <MoreHorizontal size={14} strokeWidth={1.75} />
+                      </button>
+                      {isMenuOpen && (
+                        <div className="absolute right-0 top-7 z-50 min-w-[160px] rounded-xl border border-[#E5E7EB] bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            disabled={improvingId === session.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setMenuOpen(null);
+                              setImprovingId(session.id);
+                              try {
+                                const res = await fetch(`${API_BASE_URL}/api/sessions/${session.id}/improve-title`, {
+                                  method: "POST",
+                                  headers: { Authorization: `Bearer ${session?.access_token}` },
+                                });
+                                const data = await res.json();
+                                if (data.title) {
+                                  setSessions((prev) => prev.map((s) => s.id === session.id ? { ...s, title: data.title } : s));
+                                }
+                              } catch {}
+                              setImprovingId(null);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[#111111] hover:bg-[#F7F7F8] disabled:opacity-50"
+                          >
+                            {improvingId === session.id ? <Loader2 size={13} strokeWidth={1.75} className="animate-spin" /> : <Wand2 size={13} strokeWidth={1.75} />}
+                            Improve title
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setMenuOpen(null);
+                              await deleteSession(session.id);
+                              setSessions((prev) => prev.filter((s) => s.id !== session.id));
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-[#FEF2F2]"
+                          >
+                            <Trash2 size={13} strokeWidth={1.75} />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               );
             })
           )}

@@ -10,8 +10,7 @@ import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
 import IntroducingCLIPage from "@/pages/IntroducingCLIPage";
 import SkillsPage from "@/pages/SkillsPage";
-import SupercomputerPage from "@/pages/SupercomputerPage";
-import SupercomputerRunPage from "@/pages/SupercomputerRunPage";
+// Studio and Supercomputer components removed - to be rebuilt from scratch
 import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
@@ -20,6 +19,8 @@ import HelpPage from "@/pages/HelpPage";
 import ImageGalleryPage from "@/pages/ImageGalleryPage";
 import TopUpPage from "@/pages/TopUpPage";
 import TopUpSuccessPage from "@/pages/TopUpSuccessPage";
+import BuilderPage from "@/pages/BuilderPage";
+import ProjectWorkspacePage from "@/pages/ProjectWorkspacePage";
 import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
@@ -37,8 +38,7 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
           <Route path="/skills" element={<SkillsPage />} />
-          <Route path="/supercomputer" element={<SupercomputerPage />} />
-          <Route path="/supercomputer/run" element={<SupercomputerRunPage />} />
+          {/* Studio and Supercomputer routes removed - to be rebuilt */}
           <Route path="/cli" element={<IntroducingCLIPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/payment" element={<PaymentPage />} />
@@ -48,6 +48,8 @@ function App() {
           <Route path="/gallery" element={<ImageGalleryPage />} />
           <Route path="/topup" element={<TopUpPage />} />
           <Route path="/topup/success" element={<TopUpSuccessPage />} />
+          <Route path="/builder" element={<BuilderPage />} />
+          <Route path="/project/:id" element={<ProjectWorkspacePage />} />
         </Routes>
       </BrowserRouter>
       <Toaster

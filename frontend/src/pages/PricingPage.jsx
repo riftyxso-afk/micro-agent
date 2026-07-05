@@ -376,7 +376,7 @@ export default function PricingPage() {
 
       <main
         className={`relative min-h-dvh px-4 pb-20 pt-10 transition-[margin] duration-300 ease-out sm:px-6 md:pb-10 ${
-          collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
+          collapsed ? "md:ml-[56px]" : "md:ml-[86px]"
         }`}
       >
         <div className="mx-auto w-full max-w-[1020px]">

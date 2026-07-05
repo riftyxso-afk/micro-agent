@@ -91,7 +91,7 @@ export const Sidebar = ({ activeNav, onNavChange, collapsed, onToggleCollapse, o
       <aside
         data-testid="sidebar"
         className={`fixed left-0 top-0 z-40 hidden h-dvh flex-col items-center border-r border-[#E5E7EB] bg-[#F7F7F8]/80 backdrop-blur-sm transition-[width] duration-300 ease-out md:flex ${
-          collapsed ? "w-[68px]" : "w-[86px]"
+          collapsed ? "w-[56px]" : "w-[86px]"
         }`}
       >
         {/* Logo */}

@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "@/lib/AuthContext";
+import { API_BASE_URL } from "@/lib/chatApi";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Settings,
@@ -51,6 +53,7 @@ import { Button } from "@/components/ui/button";
 
 const SETTINGS_TABS = [
   { id: "preferences", label: "Preferences", desc: "Customize your experience", icon: Settings },
+  { id: "memory", label: "Memory", desc: "Facts AI remembers about you", icon: Database },
   { id: "help", label: "Help & Feedback", desc: "Guides, support, and requests", icon: HelpCircle },
   { id: "changelog", label: "Changelog", desc: "What's new in MicroAgent", icon: Megaphone },
   { id: "privacy", label: "Privacy & Terms", desc: "Data handling and policies", icon: Shield },
@@ -511,8 +514,399 @@ const PrivacySection = ({ reduceMotion }) => (
   </motion.div>
 );
 
+const MemorySection = ({ reduceMotion }) => {
+  const [memories, setMemories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { session } = useAuth();
+
+  const fetchMemories = async () => {
+    if (!session?.access_token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/user/memories`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      setMemories(data.memories || []);
+    } catch (err) {
+      toast("Failed to load memories", { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMemories();
+  }, [session]);
+
+  const handleDelete = async (id) => {
+    if (!session?.access_token) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/user/memories/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+      toast("Memory deleted");
+    } catch (err) {
+      toast("Failed to delete", { description: err.message });
+    }
+  };
+
+  return (
+    <motion.div
+      {...(reduceMotion ? {} : {
+        initial: { opacity: 0, y: 8 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.3, ease: [0.21, 0.47, 0.32, 0.98] },
+      })}
+      className="space-y-5"
+    >
+      <div>
+        <h3 className="font-heading text-lg font-semibold text-[#111111]">Memory</h3>
+        <p className="mt-0.5 text-sm text-[#6B7280]">
+          Facts AI remembers about you across conversations. Memories help personalize responses in new chats.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#E5E7EB] border-t-[#6366F1]" />
+        </div>
+      ) : memories.length === 0 ? (
+        <SectionCard>
+          <div className="flex flex-col items-center gap-2 px-5 py-12 text-center">
+            <Database size={32} strokeWidth={1.5} className="text-[#9CA3AF]" />
+            <p className="text-sm font-medium text-[#6B7280]">No memories yet</p>
+            <p className="text-xs text-[#9CA3AF]">Have conversations and AI will remember key facts about you</p>
+          </div>
+        </SectionCard>
+      ) : (
+        <div className="space-y-3">
+          {memories.map((memory) => (
+            <SectionCard key={memory.id}>
+              <div className="flex items-start justify-between gap-3 px-5 py-4">
+                <div className="flex-1 space-y-1">
+                  <p className="text-sm leading-relaxed text-[#111111]">{memory.content}</p>
+                  <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
+                    <Clock size={12} />
+                    <span>{new Date(memory.created_at).toLocaleDateString()}</span>
+                    {memory.category && memory.category !== "general" && (
+                      <span className="rounded bg-[#F3F4F6] px-2 py-0.5 text-[10px] font-medium text-[#6B7280]">
+                        {memory.category}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(memory.id)}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#FEF2F2] hover:text-[#EF4444]"
+                  title="Delete memory"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
+                </button>
+              </div>
+            </SectionCard>
+          ))}
+        </div>
+      )}
+
+      <SectionCard>
+        <div className="px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#EEF2FF]">
+              <Shield size={15} strokeWidth={1.75} className="text-[#6366F1]" />
+            </span>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-[#111111]">Privacy Note</p>
+              <p className="text-xs leading-relaxed text-[#6B7280]">
+                Memories are stored securely and never shared. Only you can see and delete them. AI avoids storing sensitive data (health, financial details) unless you explicitly ask.
+              </p>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Import Memory Section */}
+      <ImportMemorySection session={session} onImportSuccess={fetchMemories} />
+    </motion.div>
+  );
+};
+
+const ImportMemorySection = ({ session, onImportSuccess }) => {
+  const [content, setContent] = useState("");
+  const [sourcePlatform, setSourcePlatform] = useState("ChatGPT");
+  const [loading, setLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [extractedFacts, setExtractedFacts] = useState([]);
+  const [selectedFacts, setSelectedFacts] = useState({});
+
+  const EXPORT_PROMPT = `Saya butuh kamu merangkum semua yang kamu ingat/ketahui tentang saya dari percakapan ini dan sebelumnya. Tuliskan dalam format list, per poin satu fakta, mencakup: preferensi saya, pekerjaan/proyek yang sedang saya kerjakan, konteks penting lain yang relevan untuk percakapan mendatang. Jangan diringkas berlebihan, tulis apa adanya.`;
+
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(EXPORT_PROMPT);
+    toast("Prompt copied!", { description: "Paste it to Claude/ChatGPT to export your memory" });
+  };
+
+  const handleProcess = async () => {
+    if (!content.trim()) {
+      toast("Content required", { description: "Please paste memory summary or upload a file" });
+      return;
+    }
+    if (content.length > 51200) {
+      toast("Content too large", { description: "Maximum 50KB for direct processing. Use file upload for larger imports." });
+      return;
+    }
+    if (!session?.access_token) {
+      toast("Authentication required", { description: "Please log in to import memories" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/user/memories/import-preview`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ content, source_platform: sourcePlatform }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data.facts || data.facts.length === 0) {
+        toast("No facts found", { description: "Could not extract any facts from the content. Try rephrasing or adding more detail." });
+        return;
+      }
+
+      setExtractedFacts(data.facts);
+      const selected = {};
+      data.facts.forEach((_, i) => { selected[i] = true; });
+      setSelectedFacts(selected);
+      setShowPreview(true);
+    } catch (err) {
+      toast("Import failed", { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    const facts = extractedFacts.filter((_, i) => selectedFacts[i]);
+    if (facts.length === 0) {
+      toast("No facts selected", { description: "Select at least one fact to import" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/user/memories/import-confirm`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ facts, source_platform: sourcePlatform }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+
+      const data = await res.json();
+      toast("Import successful!", { description: `${data.imported_count} memories added. Use them in your next chat.` });
+      setShowPreview(false);
+      setContent("");
+      setExtractedFacts([]);
+      setSelectedFacts({});
+      onImportSuccess?.();
+    } catch (err) {
+      toast("Save failed", { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      toast("File too large", { description: "Maximum file size is 20MB" });
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result;
+      if (typeof text === "string") {
+        setContent(text);
+        toast("File loaded", { description: `${file.name} ready to process` });
+      }
+    };
+    reader.onerror = () => {
+      toast("File read failed", { description: "Could not read the file" });
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-semibold text-[#111111]">Import Memory</h4>
+            <p className="mt-0.5 text-xs text-[#6B7280]">Import facts from Claude, ChatGPT, or other AI assistants</p>
+          </div>
+        </div>
+
+        <SectionCard>
+          <div className="space-y-4 px-5 py-4">
+            <div>
+              <p className="text-xs font-medium text-[#6B7280] mb-2">Step 1: Copy this prompt to your AI assistant</p>
+              <Button
+                onClick={handleCopyPrompt}
+                size="sm"
+                variant="outline"
+                className="w-full justify-start rounded-xl border-[#E5E7EB] bg-white text-xs text-[#111111] hover:bg-[#F7F7F8]"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                Copy Export Prompt
+              </Button>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-[#6B7280] block mb-2">Step 2: Paste AI response or upload file</label>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Paste memory summary from your AI assistant here..."
+                className="w-full min-h-[120px] rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111111] placeholder:text-[#9CA3AF] focus:border-[#6366F1] focus:outline-none focus:ring-1 focus:ring-[#6366F1]"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".txt,.json,.md"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] hover:bg-[#F7F7F8]">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17 8 12 3 7 8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Upload File (.txt, .json, .md)
+                  </span>
+                </label>
+                <span className="text-[10px] text-[#9CA3AF]">Max 20MB</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-[#6B7280] block mb-2">Source Platform</label>
+              <Select value={sourcePlatform} onValueChange={setSourcePlatform}>
+                <SelectTrigger className="w-full rounded-xl border-[#E5E7EB] bg-white text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ChatGPT">ChatGPT</SelectItem>
+                  <SelectItem value="Claude">Claude</SelectItem>
+                  <SelectItem value="DeepSeek">DeepSeek</SelectItem>
+                  <SelectItem value="Qwen">Qwen</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button
+              onClick={handleProcess}
+              disabled={loading || !content.trim()}
+              className="w-full rounded-xl bg-[#6366F1] text-sm font-medium text-white hover:bg-[#4F46E5] disabled:opacity-50"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Processing...
+                </div>
+              ) : (
+                "Process & Preview"
+              )}
+            </Button>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Preview Modal */}
+      {showPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-[#E5E7EB] px-6 py-4">
+              <h3 className="text-lg font-semibold text-[#111111]">Review Extracted Facts</h3>
+              <p className="mt-0.5 text-sm text-[#6B7280]">Uncheck any facts that are incorrect before importing</p>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+              <div className="space-y-2">
+                {extractedFacts.map((fact, i) => (
+                  <label key={i} className="flex items-start gap-3 rounded-lg border border-[#E5E7EB] p-3 hover:bg-[#F7F7F8] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFacts[i] || false}
+                      onChange={(e) => setSelectedFacts((prev) => ({ ...prev, [i]: e.target.checked }))}
+                      className="mt-0.5 h-4 w-4 rounded border-[#D1D5DB] text-[#6366F1] focus:ring-[#6366F1]"
+                    />
+                    <span className="flex-1 text-sm text-[#111111]">{fact}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4">
+              <Button
+                onClick={() => setShowPreview(false)}
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                className="rounded-xl border-[#E5E7EB] text-sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirm}
+                disabled={loading || Object.values(selectedFacts).every(v => !v)}
+                size="sm"
+                className="rounded-xl bg-[#6366F1] text-sm font-medium text-white hover:bg-[#4F46E5]"
+              >
+                {loading ? "Saving..." : `Import ${Object.values(selectedFacts).filter(Boolean).length} Facts`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const TAB_COMPONENTS = {
   preferences: PreferencesSection,
+  memory: MemorySection,
   help: HelpSection,
   changelog: ChangelogSection,
   privacy: PrivacySection,
@@ -526,7 +920,7 @@ export default function SettingsPage() {
   const [activeNav] = useState("more");
   const [activeDialog, setActiveDialog] = useState(null);
 
-  const VALID_TABS = ["preferences", "help", "changelog", "privacy"];
+  const VALID_TABS = ["preferences", "memory", "help", "changelog", "privacy"];
   const initialTab = VALID_TABS.includes(searchParams.get("section"))
     ? searchParams.get("section")
     : "preferences";
@@ -560,7 +954,7 @@ export default function SettingsPage() {
 
       <main
         className={`relative min-h-dvh px-4 pb-20 pt-10 transition-[margin] duration-300 ease-out sm:px-6 md:pb-10 ${
-          collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
+          collapsed ? "md:ml-[56px]" : "md:ml-[86px]"
         }`}
       >
         <div className="mx-auto w-full max-w-[960px]">

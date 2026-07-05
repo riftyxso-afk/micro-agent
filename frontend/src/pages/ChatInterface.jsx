@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
-import { createSession, saveMessages, fetchSessions, deleteSession, isSupabaseEnabled, uploadFileToStorage } from "@/lib/supabase";
+import { createSession, saveMessages, fetchSessions, deleteSession, updateSession, isSupabaseEnabled, uploadFileToStorage } from "@/lib/supabase";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
@@ -21,7 +21,7 @@ import {
   IMAGE_MODEL,
   MODEL_TOKEN_COST,
 } from "@/lib/workspaceData";
-import { streamChat, isImageRequest, generateImage, streamDeepResearch, uploadAndAnalyze, aiGenerateDocument, API_BASE_URL } from "@/lib/chatApi";
+import { streamChat, isImageRequest, isComparisonRequest, generateImage, streamDeepResearch, uploadAndAnalyze, aiGenerateDocument, API_BASE_URL, needsWebSearch } from "@/lib/chatApi";
 import { useSubscription } from "@/lib/useSubscription";
 import { ClarificationOptions } from "@/components/chat/ClarificationOptions";
 import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
@@ -68,7 +68,6 @@ export default function ChatInterface() {
     getModelById(seed?.modelId || DEFAULT_MODEL_ID),
   );
   const [autoMode, setAutoMode] = useState(seed?.autoMode || false);
-  const [webSearch, setWebSearch] = useState(seed?.modeWebSearch || seed?.webSearch || false);
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [activeChip, setActiveChip] = useState(seed?.chipId || null);
   const [room, setRoom] = useState(
@@ -81,6 +80,7 @@ export default function ChatInterface() {
   const [isDragging, setIsDragging] = useState(false);
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragEnabled, setRagEnabled] = useState(true);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
   const deepResearchAbortRef = useRef(null);
 
   const seededRef = useRef(false);
@@ -169,8 +169,15 @@ export default function ChatInterface() {
   }, []);
 
   const title = makeTitleTopic(
-    [...messages].reverse().find((m) => m.role === "user")?.text,
+    messages.find((m) => m.role === "user")?.text,
   );
+
+  // Override title (set after AI generate or manual rename)
+  const [chatTitle, setChatTitle] = useState(null);
+  const [titleDropdownOpen, setTitleDropdownOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const displayTitle = chatTitle || title || "New chat";
 
   useEffect(() => {
     document.title = title ? `${title} — MicroAgent` : "MicroAgent — AI Workspace";
@@ -191,6 +198,7 @@ export default function ChatInterface() {
         searchModePrompt = "",
         skillSlug = null,
         effortLevel = "low",
+        comparisonAtSend = false,
       } = opts;
       // Abort any existing generation before starting a new one
       if (abortRef.current) {
@@ -204,6 +212,7 @@ export default function ChatInterface() {
       let receivedToken = false;
       let thinkingSteps = [];
 
+      console.log('[Memory Debug] user:', user, 'user.id:', user?.id);
       streamChat({
         messages: contextMessages,
         modelId: usedModel?.id,
@@ -214,6 +223,7 @@ export default function ChatInterface() {
         effortLevel,
         reasoning: reasoningAtSend,
         searchModePrompt,
+        comparison: comparisonAtSend,
         userId: user?.id || null,
         authToken: session?.access_token || null,
         signal: controller.signal,
@@ -275,6 +285,13 @@ export default function ChatInterface() {
               state: "thinking",
               status: "synthesizing...",
               webPhase: "synthesizing",
+            });
+          }
+          if (status.phase === "web_search" && status.status === "skipped") {
+            updateMessage(assistantId, {
+              status: "no web search needed",
+              webPhase: "skipped",
+              webResults: [],
             });
           }
         },
@@ -339,15 +356,42 @@ export default function ChatInterface() {
           );
           if (!receivedToken) receivedToken = false;
           else {
-            updateMessage(assistantId, { state: "streaming", status: "streaming" });
+            updateMessage(assistantId, { state: "streaming", status: "streaming", webPhase: null });
           }
         },
+        onComparisonData: (comparisonData) => {
+          setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+            ...m,
+            comparisonData,
+          } : m));
+        },
         onDone: () => {
-          // Check if completed text contains a QNA block
+          // Check if completed text contains a QNA block or COMPARISON_DATA block (fallback)
           setMessages((prev) => {
             const msg = prev.find((m) => m.id === assistantId);
             if (!msg) return prev;
             const fullText = msg._rawText || msg.text || "";
+            
+            // Check for COMPARISON_DATA block (only if not already set from SSE event)
+            const compMatch = msg.comparisonData ? null : fullText.match(/<COMPARISON_DATA>([\s\S]*?)<\/COMPARISON_DATA>/);
+            if (compMatch) {
+              try {
+                const compData = JSON.parse(compMatch[1].trim());
+                const preText = fullText.slice(0, compMatch.index).trim();
+                return prev.map((m) => m.id === assistantId ? {
+                  ...m,
+                  state: "completed",
+                  status: "just now",
+                  text: preText,
+                  comparisonData: compData,
+                } : m);
+              } catch (e) { 
+                console.error("Failed to parse COMPARISON_DATA:", e);
+                /* malformed JSON — fall through to normal */ 
+              }
+            }
+            
+            // Check for QNA block
             const qnaMatch = fullText.match(/<QNA>([\s\S]*?)<\/QNA>/);
             if (qnaMatch) {
               try {
@@ -453,7 +497,7 @@ export default function ChatInterface() {
   }, [autoMode, model, messages, updateMessage, isPro, navigate, user]);
 
   const sendMessage = useCallback(
-    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false) => {
+    (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false, _comparison = false) => {
       // Guest limit gate — seed prompts already counted in HomeWorkspace
       const allowed = _isSeed ? checkGuestAllowed() : incrementGuestCount();
       if (!allowed) {
@@ -481,18 +525,22 @@ export default function ChatInterface() {
       if (tokenBalance !== null) {
         setTokenBalance((prev) => prev !== null ? Math.max(0, prev - tokenCost) : prev);
       }
-      const userMsg = { id: nextId(), role: "user", text, webSearch };
-      // Use explicit searchModeId from composer, fallback to webSearch flag
+      const userMsg = { id: nextId(), role: "user", text, webSearch: true };
+      // Use explicit searchModeId from composer, fallback to web
       const activeModeId = searchModeId && searchModeId !== "off"
         ? searchModeId
-        : webSearch ? "web" : "off";
+        : "web";
+      
+      // Detect comparison requests (toggle OR text keywords)
+      const isCompReq = _comparison || comparisonEnabled || isComparisonRequest(text);
+      
       const assistantMsg = {
         id: nextId(),
         role: "assistant",
         state: "pending",
         model: isImgReq ? IMAGE_MODEL : usedModel,
         autoMode: isImgReq ? false : autoMode,
-        webSearch,
+        webSearch: true,
         searchMode: isImgReq ? "off" : activeModeId,
         skillSlug: skillSlug || null,
         skillPhase: skillSlug ? "loading" : null,
@@ -501,6 +549,7 @@ export default function ChatInterface() {
         prompt: text,
         thinkingSteps: [],
         reasoningText: "",
+        isComparison: isCompReq,
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -567,22 +616,22 @@ export default function ChatInterface() {
         return;
       }
 
-      // Use web search if: globe toggle is on, OR selected mode requires web search
-      const shouldWebSearch = webSearch || modeWebSearch;
+      // Web search only when needed
       runGeneration(assistantMsg.id, text, {
         roomAtSend: room,
         cost: usedModel.credits || 0,
         usedModel,
         attachments,
         contextMessages,
-        webSearchAtSend: shouldWebSearch,
+        webSearchAtSend: needsWebSearch(text),
         reasoningAtSend: reasoningEnabled,
         searchModePrompt,
         skillSlug,
         effortLevel,
+        comparisonAtSend: isCompReq,
       });
     },
-    [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT, decrementCredits, user], // eslint-disable-line react-hooks/exhaustive-deps
+    [autoMode, model, messages, room, runGeneration, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT, decrementCredits, user], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const handleDeepResearch = useCallback(async (query) => {
@@ -709,7 +758,7 @@ export default function ChatInterface() {
       state: "pending",
       model: usedModel,
       autoMode: autoMode,
-      webSearch,
+      webSearch: true,
       text: "",
       code: null,
       prompt: refined,
@@ -744,10 +793,10 @@ export default function ChatInterface() {
       usedModel,
       attachments: [],
       contextMessages,
-      webSearchAtSend: webSearch,
+      webSearchAtSend: true,
       reasoningAtSend: reasoningEnabled,
     });
-  }, [autoMode, model, messages, room, runGeneration, webSearch, reasoningEnabled, setMessages]);
+  }, [autoMode, model, messages, room, runGeneration, reasoningEnabled, setMessages]);
 
   // Seed from home workspace — wait until component is mounted and
   // isGenerating is confirmed false before triggering first message
@@ -763,8 +812,8 @@ export default function ChatInterface() {
             seed.prompt,
             seed.attachments || [],
             seed.searchModePrompt || "",
-            seed.searchModeId || "off",
-            seed.modeWebSearch || false,
+            seed.searchModeId || "web",
+            true,
             seed.skillSlug || null,
             seed.effortLevel || "low",
             true, // _isSeed — already counted in HomeWorkspace
@@ -792,6 +841,16 @@ export default function ChatInterface() {
         if (sess) {
           setSessionId(sess.id);
           window.history.replaceState({}, "", `/chat/${sess.id}`);
+          // Auto-generate better title via AI (non-blocking)
+          if (session?.access_token) {
+            fetch(`${API_BASE_URL}/api/sessions/${sess.id}/improve-title`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            })
+              .then((r) => r.json())
+              .then((d) => { if (d.title) setChatTitle(d.title); })
+              .catch(() => {});
+          }
         }
       })
       .catch(() => {});
@@ -979,11 +1038,86 @@ export default function ChatInterface() {
 
       <div
         className={`flex h-full min-h-0 flex-col transition-[margin] duration-300 ease-out ${
-          collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
+          collapsed ? "md:ml-[56px]" : "md:ml-[86px]"
         } ${
           sessionFiles.length > 0 ? "lg:ml-[calc(86px+220px)]" : ""
         }`}
       >
+        {/* Chat title header */}
+        {messages.length > 0 && (
+          <div className="relative flex items-center gap-1.5 px-4 py-2.5 border-b border-[#F0F1F3]">
+            {renaming ? (
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const v = renameValue.trim();
+                if (v) {
+                  setChatTitle(v);
+                  if (sessionId) updateSession(sessionId, { title: v });
+                }
+                setRenaming(false);
+              }} className="flex items-center gap-2 flex-1 max-w-[400px]">
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setRenaming(false); }}
+                  className="flex-1 text-sm font-medium text-[#111111] border-b border-[#6366F1] outline-none bg-transparent px-0.5"
+                />
+                <button type="submit" className="text-xs text-[#6366F1] font-medium">Save</button>
+                <button type="button" onClick={() => setRenaming(false)} className="text-xs text-[#9CA3AF]">Cancel</button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setTitleDropdownOpen((v) => !v)}
+                className="flex items-center gap-1 text-sm font-medium text-[#374151] hover:text-[#111111] transition-colors max-w-[320px] truncate"
+              >
+                <span className="truncate">{displayTitle}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[#9CA3AF]"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+            )}
+
+            {/* Dropdown menu */}
+            {titleDropdownOpen && !renaming && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setTitleDropdownOpen(false)} />
+                <div className="absolute left-4 top-full mt-1 z-50 min-w-[200px] rounded-xl border border-[#E5E7EB] bg-white py-1 shadow-lg">
+                  <button
+                    onClick={() => {
+                      setTitleDropdownOpen(false);
+                      setRenameValue(displayTitle);
+                      setRenaming(true);
+                    }}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-[13px] text-[#111111] hover:bg-[#F7F7F8]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Rename
+                    </span>
+                    <span className="text-[11px] text-[#9CA3AF]">R</span>
+                  </button>
+                  <div className="my-1 border-t border-[#F0F1F3]" />
+                  <button
+                    onClick={async () => {
+                      setTitleDropdownOpen(false);
+                      if (sessionId && window.confirm("Hapus chat ini?")) {
+                        await deleteSession(sessionId);
+                        navigate("/home");
+                      }
+                    }}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-[#FEF2F2]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      Delete
+                    </span>
+                    <span className="text-[11px] text-[#9CA3AF]">D</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <main
           ref={scrollRef}
           data-testid="chat-messages"
@@ -1119,7 +1253,7 @@ export default function ChatInterface() {
                 </div>
               ) : (
                 <div key={m.id}>
-                  <AssistantMessage message={m} onRetry={handleRetry} onRefine={handleRefine} />
+                  <AssistantMessage message={m} onRetry={handleRetry} onRefine={handleRefine} onAbort={handleStop} />
                   {/* Document download button */}
                   {m.downloadUrl && m.state === "completed" && (
                     <div className="mt-2 ml-10">
@@ -1160,6 +1294,7 @@ export default function ChatInterface() {
             <PromptComposer
               compact
               placeholder="Ask anything"
+              initialValue={seed?.prompt || ""}
               onSend={sendMessage}
               onDeepResearch={handleDeepResearch}
               onFileSelect={(files) => {
@@ -1180,16 +1315,16 @@ export default function ChatInterface() {
               autoMode={autoMode}
               onModelSelect={handleModelSelect}
               onAutoModeToggle={handleAutoModeToggle}
-              webSearchEnabled={webSearch}
-              onWebSearchToggle={() => setWebSearch((value) => !value)}
               reasoningEnabled={reasoningEnabled}
               onReasoningToggle={handleReasoningToggle}
-              initialSearchMode={seed?.searchModeId || "off"}
+              initialSearchMode={seed?.searchModeId || "web"}
               initialSkill={seed?.skillSlug ? { slug: seed.skillSlug, name: seed.skillSlug, icon: "🧠" } : null}
               initialEffortLevel={seed?.effortLevel || "low"}
               tokenBalance={tokenBalance}
               onRagToggle={() => setShowRagPanel((v) => !v)}
               ragEnabled={ragEnabled}
+              comparisonEnabled={comparisonEnabled}
+              onComparisonToggle={() => setComparisonEnabled((v) => !v)}
             />
             <p className="mt-2 text-center text-[11px] text-[#9CA3AF]">
               MicroAgent can make mistakes. Always double-check important information.

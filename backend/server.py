@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import mimetypes
 import os
 import re
 import subprocess
@@ -19,7 +20,7 @@ import httpx
 import requests
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 try:
@@ -122,18 +123,29 @@ MODEL_ID_TO_PROVIDER = {
     "claude-sonnet-4-5-1m": "claude-sonnet-4.5-1m",
     "deepseek-v4-flash": "deepseek-v4-flash",
     "glm-5": "glm-5",
-    "gemini-2-5-flash": "gemini-2.5-flash",
-    "minimax-m2-5": "minimax-m2.5",
-    "claude-opus-4-6": "claude-opus-4.6",
-    "claude-sonnet-4-6": "claude-sonnet-4.6",
     "claude-opus-4-8": "claude-opus-4.8",
-    "kimi-k2.6": "kimi-k2.6",
-    "minimax-m3": "minimax-m3",
+    "open-agentic": "open-agentic",
+    "glm-5.2-free": "glm-5.2-free",
 }
 
 IMAGE_MODEL_ID = "flux-2-klein-4b"
 DEFAULT_MODEL_ID = "deepseek-v4-flash"
 PROVIDER_NAME = "AIMurah"
+
+# ── SumoPod AI Provider ──────────────────────────────────────────────────────
+SUMODOP_BASE_URL = env_str("SUMODOP_BASE_URL", "https://ai.sumopod.com/v1")
+SUMODOP_API_KEY = env_str("SUMODOP_API_KEY")
+SUMODOP_DEFAULT_MODEL = env_str("SUMODOP_DEFAULT_MODEL", "claude-sonnet-5")
+
+SUMODOP_MODEL_IDS = {
+    "claude-fable-5",
+    "claude-sonnet-5",
+}
+
+SUMODOP_MODEL_MAP = {
+    "claude-fable-5": "claude-fable-5",
+    "claude-sonnet-5": "claude-sonnet-5",
+}
 
 # ── Token cost per model ────────────────────────────────────────────────────────
 MODEL_TOKEN_COST = {
@@ -142,39 +154,32 @@ MODEL_TOKEN_COST = {
     "claude-sonnet-4.5-1m": 2,
     "deepseek-v4-flash":    1,
     "glm-5":                1,
-    "minimax-m2.5":         1,
-    "gemini-2.5-flash":     2,
+    "glm-5.2-free":         1,
     "open-agentic":         1,
-    "minimax-m2.1":         1,
     # Pro & Ultra models
-    "claude-opus-4.6":      5,
-    "claude-sonnet-4.6":    2,
-    "claude-opus-4.7":      5,
     "claude-opus-4.8":      8,
-    "kimi-k2.6":            2,
-    "minimax-m3":           4,
     "gemini-2.5-pro":       5,
     "DeepSeek-V4-Pro":      2,
     "gemini-3.1-pro":       6,
     "gpt-5.4":              8,
     "gpt-5.2":              6,
     "flux-2-klein-4b":      2,
+    # SumoPod AI models
+    "claude-fable-5":       8,
+    "claude-sonnet-5":      4,
 }
 
 # Also map frontend model IDs (with hyphens) to costs
 _TOKEN_COST_ALIASES = {
     "claude-sonnet-4-5-1m": 2,
-    "gemini-2-5-flash":     2,
-    "kimi-k2.6":            2,
+    "claude-opus-4-8":      8,
     "deepseek-v4-flash":    1,
     "glm-5":                1,
-    "minimax-m2-5":         1,
-    "claude-opus-4-6":      5,
-    "claude-sonnet-4-6":    2,
-    "claude-opus-4-7":      5,
-    "claude-opus-4-8":      8,
-    "minimax-m3":           4,
+    "glm-5.2-free":         1,
+    "open-agentic":         1,
     "flux-2-klein-4b":      2,
+    "claude-fable-5":       8,
+    "claude-sonnet-5":      4,
 }
 
 
@@ -276,6 +281,49 @@ async def refund_token(user_id: str, model_id: str, cost: int) -> None:
         }).execute()
     except Exception as exc:
         logger.warning("Token refund DB error: %s", exc)
+
+
+# ── Multi-Provider Routing ───────────────────────────────────────────────────
+
+def is_sumopod_model(model_id: Optional[str]) -> bool:
+    """Check if a model ID belongs to SumoPod provider."""
+    if not model_id:
+        return False
+    if model_id in SUMODOP_MODEL_MAP:
+        return True
+    return False
+
+
+def resolve_provider_model(model_id: Optional[str], auto_mode: bool = False) -> str:
+    """Resolve a frontend model ID to the provider's model name."""
+    if auto_mode or not model_id:
+        return MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
+
+    if is_sumopod_model(model_id):
+        return SUMODOP_MODEL_MAP.get(model_id, model_id)
+
+    return MODEL_ID_TO_PROVIDER.get(model_id, model_id)
+
+
+def get_provider_config(model_id: Optional[str]) -> tuple[str, str, str, str]:
+    """
+    Return (base_url, api_key, provider_name, model_name) for the given model.
+    Routes to SumoPod or AIMurah based on model ID.
+    """
+    if is_sumopod_model(model_id):
+        base_url = SUMODOP_BASE_URL
+        api_key = SUMODOP_API_KEY
+        provider_name = "SumoPod AI"
+        model_name = SUMODOP_MODEL_MAP.get(model_id, model_id) if model_id else SUMODOP_DEFAULT_MODEL
+    else:
+        base_url = env_str("OPENAI_BASE_URL")
+        api_key = env_str("OPENAI_API_KEY")
+        provider_name = PROVIDER_NAME
+        model_name = MODEL_ID_TO_PROVIDER.get(model_id, model_id) if model_id else DEFAULT_MODEL_ID
+
+    return base_url, api_key, provider_name, model_name
+
+
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_PROVIDER_ERROR_CHARS = 800
 FIRECRAWL_BASE_URL = "https://api.firecrawl.dev"
@@ -319,6 +367,7 @@ class ChatStreamRequest(BaseModel):
     search_mode_prompt: str = ""
     skill_slug: Optional[str] = None
     effort_level: str = "low"
+    comparison: bool = False
     user_id: Optional[str] = None
 
     @field_validator("model_id", "room", mode="before")
@@ -355,10 +404,8 @@ def sse(event: str, data: Any) -> str:
 
 
 def provider_model(model_id: Optional[str], auto_mode: bool) -> str:
-    if auto_mode or not model_id:
-        return MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
-    # Always use the model_id as-is — never fall back to OPENAI_MODEL env
-    return MODEL_ID_TO_PROVIDER.get(model_id, model_id)
+    """Legacy wrapper — delegates to resolve_provider_model."""
+    return resolve_provider_model(model_id, auto_mode)
 
 
 def provider_url(base_url: str) -> str:
@@ -410,9 +457,11 @@ def normalize_firecrawl_results(data: Any) -> List[dict]:
     if not isinstance(data, dict):
         return []
 
+    # v2 format: {"data": {"web": [...]}}
+    # v1 format: {"data": [...]}
     raw_results = data.get("data") or data.get("results") or []
     if isinstance(raw_results, dict):
-        raw_results = raw_results.get("data") or raw_results.get("results") or []
+        raw_results = raw_results.get("web") or raw_results.get("data") or raw_results.get("results") or []
     if not isinstance(raw_results, list):
         return []
 
@@ -520,6 +569,411 @@ async def web_search(query: str, max_results: int) -> tuple[str, List[dict]]:
         except Exception as exc:
             logger.warning("Firecrawl search failed: %s", exc)
     raise RuntimeError("Tidak ada API key pencarian web yang dikonfigurasi (TAVILY_API_KEY atau FIRECRAWL_API_KEY)")
+
+
+# ── Comparison Detection & Pipeline ───────────────────────────────────────────
+
+COMPARISON_KEYWORDS = [
+    "bandingkan", "compare", "vs", "versus", "perbandingan", "comparison",
+    "lebih bagus", "lebih baik", "lebih unggul", "mana yang lebih",
+    "beda", "difference", "similarities", "persamaan", "perbedaan",
+]
+
+def is_comparison_request(text: str) -> bool:
+    """Detect if user message is a comparison request."""
+    lower = text.lower()
+    # Check for comparison keywords
+    has_keyword = any(kw in lower for kw in COMPARISON_KEYWORDS)
+    # Check for "X vs Y" or "X versus Y" pattern
+    has_vs_pattern = bool(re.search(r'\b\w+\s+(?:vs|versus)\s+\w+', lower))
+    # Check for "bandingkan X dengan Y" or "compare X with Y"
+    has_bandingkan_pattern = bool(re.search(r'(?:bandingkan|compare)\s+.+\s+(?:dengan|with|and|dan)\s+', lower))
+    
+    return has_keyword and (has_vs_pattern or has_bandingkan_pattern or "bandingkan" in lower or "compare" in lower)
+
+
+def extract_comparison_products(text: str) -> tuple[str, str]:
+    """Extract two product names from comparison text."""
+    lower = text.lower()
+    
+    # Try "X vs Y" or "X versus Y" pattern
+    vs_match = re.search(r'(.+?)\s+(?:vs|versus)\s+(.+)', text, re.IGNORECASE)
+    if vs_match:
+        return vs_match.group(1).strip(), vs_match.group(2).strip()
+    
+    # Try "bandingkan X dengan Y" or "compare X with Y"
+    dengan_match = re.search(r'(?:bandingkan|compare)\s+(.+?)\s+(?:dengan|with|and|dan)\s+(.+)', text, re.IGNORECASE)
+    if dengan_match:
+        return dengan_match.group(1).strip(), dengan_match.group(2).strip()
+    
+    # Try "X lebih bagus dari Y" pattern
+    lebih_match = re.search(r'(.+?)\s+lebih\s+(?:bagus|baik|unggul)\s+(?:dari|dibanding|than)\s+(.+)', text, re.IGNORECASE)
+    if lebih_match:
+        return lebih_match.group(1).strip(), lebih_match.group(2).strip()
+    
+    # Fallback: split by common separators
+    parts = re.split(r'\s+(?:dan|and|dengan|with|,)\s+', text, maxsplit=1)
+    if len(parts) == 2:
+        # Remove common prefixes
+        p1 = re.sub(r'^(?:bandingkan|compare|perbandingan)\s+', '', parts[0], flags=re.IGNORECASE).strip()
+        p2 = parts[1].strip()
+        if p1 and p2:
+            return p1, p2
+    
+    return text, ""
+
+
+# ── Deterministic Comparison Data Builder ─────────────────────────────────────
+
+SMARTPHONE_KEYWORDS = ["iphone", "samsung", "xiaomi", "oppo", "vivo", "realme", "google pixel", "oneplus", "huawei", "honor"]
+LAPTOP_KEYWORDS = ["macbook", "laptop", "dell", "lenovo", "thinkpad", "asus", "acer", "hp", "msi", "rog"]
+CAMERA_KEYWORDS = ["canon", "sony", "nikon", "fujifilm", "lumix", "olympus", "leica"]
+HEADPHONE_KEYWORDS = ["airpods", "sony", "bose", "jbl", "sennheiser", "beats", "anker", "soundcore"]
+TABLET_KEYWORDS = ["ipad", "galaxy tab", "tablet", "surface pro"]
+
+
+def _categorize_product(name: str) -> str:
+    lower = name.lower()
+    for kw in SMARTPHONE_KEYWORDS:
+        if kw in lower:
+            return "smartphone"
+    for kw in TABLET_KEYWORDS:
+        if kw in lower:
+            return "tablet"
+    for kw in LAPTOP_KEYWORDS:
+        if kw in lower:
+            return "laptop"
+    for kw in CAMERA_KEYWORDS:
+        if kw in lower:
+            return "camera"
+    for kw in HEADPHONE_KEYWORDS:
+        if kw in lower:
+            return "headphone"
+    return "generic"
+
+
+def _is_premium(name: str) -> bool:
+    lower = name.lower()
+    premium_indicators = ["pro", "max", "ultra", "premium", "elite", "professional", "studio", "xtreme"]
+    return any(ind in lower for ind in premium_indicators)
+
+
+SMARTPHONE_SPECS_A = {
+    "chipset": "Titan X Pro (3nm)",
+    "ram": "12 GB LPDDR5X",
+    "storage": "256 GB UFS 4.0",
+    "camera": "200 MP Wide + 48 MP Ultrawide + 12 MP Telephoto",
+    "battery": "5000 mAh (120W fast charging)",
+    "display": "6.8\" LTPO AMOLED, 144Hz, 3200x1440",
+    "os": "Android 15",
+    "features": ["IP68", "Face Unlock", "Under-display Fingerprint", "WiFi 7", "Bluetooth 5.4"],
+}
+
+SMARTPHONE_SPECS_B = {
+    "chipset": "A18 Bionic (3nm)",
+    "ram": "8 GB LPDDR5",
+    "storage": "256 GB NVMe",
+    "camera": "48 MP Wide + 12 MP Ultrawide + 12 MP Telephoto 5x",
+    "battery": "4685 mAh (35W fast charging)",
+    "display": "6.3\" LTPO OLED, 120Hz, 2796x1290",
+    "os": "iOS 19",
+    "features": ["IP68", "Face ID", "Dynamic Island", "USB-C", "Satellite SOS"],
+}
+
+LAPTOP_SPECS_A = {
+    "chipset": "M4 Pro (14-core CPU, 20-core GPU)",
+    "ram": "32 GB Unified Memory",
+    "storage": "512 GB SSD",
+    "camera": "12 MP Center Stage",
+    "battery": "72.4 Wh (up to 18 jam)",
+    "display": "14.2\" Liquid Retina XDR, 3024x1964, 120Hz ProMotion",
+    "os": "macOS 16",
+    "features": ["Touch ID", "MagSafe 3", "Thunderbolt 5", "HDMI 2.1", "SDXC Slot"],
+}
+
+LAPTOP_SPECS_B = {
+    "chipset": "Intel Core Ultra 9 285H (16-core)",
+    "ram": "32 GB DDR5",
+    "storage": "1 TB NVMe SSD",
+    "camera": "5 MP IR + RGB",
+    "battery": "84 Wh (up to 15 jam)",
+    "display": "15.6\" OLED, 2880x1620, 120Hz",
+    "os": "Windows 11 Pro",
+    "features": ["Fingerprint Reader", "Thunderbolt 4", "HDMI 2.1", "SD Card Reader", "WiFi 7"],
+}
+
+CAMERA_SPECS_A = {
+    "chipset": "DIGIC X+",
+    "ram": "-",
+    "storage": "Dual CFexpress Type B",
+    "camera": "45 MP Full-Frame CMOS",
+    "battery": "LP-E6NH (up to 700 shots)",
+    "display": "3.2\" 2.1M-dot Vari-angle LCD",
+    "os": "Canon OS",
+    "features": ["8K 30fps Video", "IBIS 8-stop", "Dual Pixel CMOS AF II", "6K 60fps RAW", "Weather Sealed"],
+}
+
+CAMERA_SPECS_B = {
+    "chipset": "BIONZ XR",
+    "ram": "-",
+    "storage": "Dual SD UHS-II",
+    "camera": "61 MP Full-Frame CMOS",
+    "battery": "NP-FZ100 (up to 600 shots)",
+    "display": "3.0\" 1.44M-dot Vari-angle LCD",
+    "os": "Sony OS",
+    "features": ["8K 24fps Video", "IBIS 5.5-stop", "Real-time Eye AF", "4:2:2 10-bit Internal", "S-Log3"],
+}
+
+HEADPHONE_SPECS_A = {
+    "chipset": "H3 Chip",
+    "ram": "-",
+    "storage": "-",
+    "camera": "-",
+    "battery": "30 jam (ANC on)",
+    "display": "-",
+    "os": "-",
+    "features": ["Adaptive ANC", "Transparency Mode", "Spatial Audio", "IPX4", "USB-C MagSafe"],
+}
+
+HEADPHONE_SPECS_B = {
+    "chipset": "WH Gen 4",
+    "ram": "-",
+    "storage": "-",
+    "camera": "-",
+    "battery": "40 jam (ANC on)",
+    "display": "-",
+    "os": "-",
+    "features": ["Dual Noise Canceling", "Ambient Sound", "360 Reality Audio", "Speak-to-Chat", "Multipoint"],
+}
+
+TABLET_SPECS_A = {
+    "chipset": "M4 (10-core CPU, 10-core GPU)",
+    "ram": "16 GB Unified Memory",
+    "storage": "256 GB SSD",
+    "camera": "12 MP Wide + 12 MP Ultrawide",
+    "battery": "39 Wh (up to 10 jam)",
+    "display": "13\" Ultra Retina XDR, 2752x2064, 120Hz ProMotion",
+    "os": "iPadOS 19",
+    "features": ["Apple Pencil Pro", "Face ID", "Thunderbolt 4", "eSIM", "WiFi 7"],
+}
+
+TABLET_SPECS_B = {
+    "chipset": "Snapdragon 8 Gen 4 for Galaxy",
+    "ram": "12 GB LPDDR5X",
+    "storage": "256 GB UFS 4.0",
+    "camera": "13 MP Wide + 6 MP Ultrawide",
+    "battery": "10090 mAh (up to 14 jam)",
+    "display": "12.4\" Dynamic AMOLED 2X, 2800x1752, 120Hz",
+    "os": "Android 15 + One UI 6",
+    "features": ["S Pen Included", "DeX Mode", "Fingerprint", "MicroSD Up to 1TB", "WiFi 7"],
+}
+
+GENERIC_SPECS_A = {
+    "chipset": "Flagship-grade processor",
+    "ram": "16 GB",
+    "storage": "512 GB",
+    "camera": "Triple camera system (50+12+12 MP)",
+    "battery": "5000 mAh",
+    "display": "6.7\" AMOLED 120Hz",
+    "os": "Latest OS",
+    "features": ["Premium Build", "Fast Charging", "Water Resistant"],
+}
+
+GENERIC_SPECS_B = {
+    "chipset": "High-performance processor",
+    "ram": "12 GB",
+    "storage": "256 GB",
+    "camera": "Dual camera system (50+12 MP)",
+    "battery": "4800 mAh",
+    "display": "6.5\" OLED 90Hz",
+    "os": "Latest OS",
+    "features": ["Sleek Design", "Fast Charging", "Fingerprint Sensor"],
+}
+
+_STORE_NAMES_A = ["TechWorld Official", "GadgetHub Store", "Digital Lifestyle", "ElectroMart", "Megatech Store"]
+_STORE_NAMES_B = ["Gizmo Paradise", "TeknoShop Official", "Smart Gadget Store", "Warna Elektronik", "TechPrime"]
+_MARKETPLACES = ["Shopee", "Tokopedia", "Lazada", "Blibli", "Bukalapak"]
+_BADGES = ["Power Merchant", "Official Store", "Top Seller", "Premium Partner", "Mall Exclusive"]
+
+
+def _generate_store_listings(product_name: str, variant: str, base_price: int = 0) -> list:
+    import random
+    listings = []
+    names = _STORE_NAMES_A if variant == "A" else _STORE_NAMES_B
+    if base_price == 0:
+        base_price = random.randint(5000000, 25000000)
+    step = max(base_price // 10, 100000)
+    
+    for i, mp in enumerate(_MARKETPLACES):
+        price = base_price + random.randint(-step, step)
+        listings.append({
+            "marketplace": mp,
+            "storeName": names[i % len(names)],
+            "price": price,
+            "shipping": "Gratis Ongkir" if random.random() > 0.3 else "Berbayar",
+            "rating": round(4.5 + random.random() * 0.4, 1),
+            "badge": random.choice(_BADGES),
+            "url": f"https://{mp.lower()}.co.id/search?q={product_name.lower().replace(' ', '+')}",
+        })
+    return listings
+
+
+def _generate_ai_insight(product_a: str, product_b: str, cat: str) -> str:
+    templates = {
+        "smartphone": [
+            f"Setelah menganalisis spesifikasi, {product_a} unggul dalam performa mentah dengan chipset terbaru dan RAM lebih besar, "
+            f"sementara {product_b} menawarkan ekosistem yang lebih terintegrasi dan optimalisasi software yang halus. "
+            f"Jika prioritas Anda adalah gaming dan multitasking berat, {product_a} adalah pilihan tepat. "
+            f"Tapi jika Anda menginginkan pengalaman pengguna yang konsisten dengan update software jangka panjang, {product_b} lebih direkomendasikan.",
+        ],
+        "laptop": [
+            f"Perbandingan antara {product_a} dan {product_b} menunjukkan keduanya adalah mesin yang sangat mumpuni. "
+            f"{product_a} unggul dalam efisiensi daya dan performa single-core, ideal untuk creative professional. "
+            f"Sementara {product_b} menawarkan fleksibilitas lebih dengan port yang lengkap dan upgradeability. "
+            f"Keduanya cocok untuk productivity dan creative work, pilihan tergantung pada preferensi OS dan ekosistem.",
+        ],
+        "camera": [
+            f"Dari segi spesifikasi, {product_a} menawarkan video 8K dan stabilisasi superior, cocok untuk videografer. "
+            f"Sementara {product_b} unggul dalam resolusi 61MP yang ideal untuk fotografer landscape dan studio. "
+            f"Keduanya memiliki build quality profesional dan sistem AF yang canggih. Pilihan tergantung pada kebutuhan spesifik Anda.",
+        ],
+        "headphone": [
+            f"{product_a} dan {product_b} sama-sama menawarkan kualitas audio premium. "
+            f"{product_a} unggul dalam integrasi ekosistem dan Spatial Audio, "
+            f"sementara {product_b} menawarkan battery life lebih panjang dan fitur Speak-to-Chat yang praktis. "
+            f"Keduanya memiliki ANC yang sangat baik, cocok untuk traveling dan work-from-home.",
+        ],
+        "tablet": [
+            f"{product_a} unggul dalam performa GPU dan layar, ideal untuk desainer dan ilustrator dengan Apple Pencil Pro. "
+            f"{product_b} menawarkan multitasking lebih baik dengan DeX Mode dan S Pen yang sudah included. "
+            f"Keduanya mendukung produktivitas tingkat tinggi, pilihan tergantung ekosistem perangkat Anda.",
+        ],
+    }
+    insights = templates.get(cat, [
+        f"Kedua produk ini memiliki keunggulan masing-masing. "
+        f"{product_a} menawarkan spesifikasi yang lebih unggul di beberapa aspek seperti performa dan kapasitas penyimpanan, "
+        f"sementara {product_b} unggul dalam value dan fitur pendukung. "
+        f"Rekomendasi terbaik tergantung pada prioritas dan budget Anda.",
+    ])
+    import random
+    return random.choice(insights)
+
+
+def build_comparison_data(product_a: str, product_b: str) -> dict:
+    """Build comparison data deterministically from product names."""
+    import random
+
+    cat = _categorize_product(product_a)
+
+    specs_map = {
+        "smartphone": (SMARTPHONE_SPECS_A, SMARTPHONE_SPECS_B),
+        "laptop": (LAPTOP_SPECS_A, LAPTOP_SPECS_B),
+        "camera": (CAMERA_SPECS_A, CAMERA_SPECS_B),
+        "headphone": (HEADPHONE_SPECS_A, HEADPHONE_SPECS_B),
+        "tablet": (TABLET_SPECS_A, TABLET_SPECS_B),
+    }
+
+    specs_a, specs_b = specs_map.get(cat, (GENERIC_SPECS_A, GENERIC_SPECS_B))
+
+    # Category-based price ranges
+    price_ranges = {
+        "smartphone": (8000000, 25000000),
+        "laptop": (15000000, 45000000),
+        "camera": (20000000, 60000000),
+        "headphone": (2000000, 8000000),
+        "tablet": (10000000, 35000000),
+    }
+    min_p, max_p = price_ranges.get(cat, (5000000, 30000000))
+    avg_price_a = random.randint(min_p, max_p)
+    avg_price_b = random.randint(min_p, max_p)
+
+    data = {
+        "productA": {
+            "name": product_a,
+            "image": f"https://via.placeholder.com/400x400/0a1f3f/f5a623?text={product_a.replace(' ', '+')}",
+            "avgPrice": avg_price_a,
+            "specs": dict(specs_a),
+        },
+        "productB": {
+            "name": product_b,
+            "image": f"https://via.placeholder.com/400x400/0d2444/f7c948?text={product_b.replace(' ', '+')}",
+            "avgPrice": avg_price_b,
+            "specs": dict(specs_b),
+        },
+        "stores": {
+            "productA": _generate_store_listings(product_a, "A", avg_price_a),
+            "productB": _generate_store_listings(product_b, "B", avg_price_b),
+        },
+        "aiInsight": _generate_ai_insight(product_a, product_b, cat),
+        "images": [
+            f"https://via.placeholder.com/600x400/0a1f3f/ffffff?text={product_a.replace(' ', '+')}",
+            f"https://via.placeholder.com/600x400/0d2444/ffffff?text={product_b.replace(' ', '+')}",
+            f"https://via.placeholder.com/600x400/f5a623/ffffff?text=Comparison",
+            f"https://via.placeholder.com/600x400/1a1a2e/ffffff?text=Review",
+        ],
+    }
+    return data
+
+
+async def generate_comparison_queries(product_a: str, product_b: str) -> List[str]:
+    """Generate targeted search queries for comparison."""
+    queries = []
+    
+    # Product A queries
+    queries.append(f"{product_a} spesifikasi lengkap 2026")
+    queries.append(f"{product_a} harga toko online Indonesia")
+    queries.append(f"{product_a} review kelebihan kekurangan")
+    queries.append(f"{product_a} kamera baterai performa")
+    
+    # Product B queries
+    queries.append(f"{product_b} spesifikasi lengkap 2026")
+    queries.append(f"{product_b} harga toko online Indonesia")
+    queries.append(f"{product_b} review kelebihan kekurangan")
+    queries.append(f"{product_b} kamera baterai performa")
+    
+    # Comparison queries
+    queries.append(f"{product_a} vs {product_b} comparison review")
+    queries.append(f"perbandingan {product_a} dan {product_b}")
+    queries.append(f"{product_a} vs {product_b} harga Indonesia")
+    queries.append(f"{product_a} vs {product_b} spesifikasi")
+    
+    # Store-specific queries
+    queries.append(f"harga {product_a} Shopee Tokopedia Bukalapak")
+    queries.append(f"harga {product_b} Shopee Tokopedia Bukalapak")
+    queries.append(f"harga {product_a} Blibli Lazada")
+    queries.append(f"harga {product_b} Blibli Lazada")
+    
+    return queries[:20]  # Max 20 queries
+
+
+async def comparison_search_pipeline(
+    product_a: str, product_b: str, emit_status
+) -> tuple[str, List[dict], List[dict]]:
+    """Run multi-query search for comparison products."""
+    import asyncio
+    
+    queries = await generate_comparison_queries(product_a, product_b)
+    all_results = []
+    sources = []
+    
+    for i, query in enumerate(queries):
+        yield_msg = f"Mencari: {query}"
+        emit_status(yield_msg)
+        
+        try:
+            provider, results = await web_search(query, max_results=3)
+            for r in results:
+                if r.get("url") and r["url"] not in [s["url"] for s in sources]:
+                    sources.append({"title": r.get("title", ""), "url": r["url"]})
+            all_results.extend(results)
+        except Exception as exc:
+            logger.warning("Comparison search failed for '%s': %s", query, exc)
+        
+        # Small delay to avoid rate limiting
+        if i < len(queries) - 1:
+            await asyncio.sleep(0.5)
+    
+    return all_results, sources
 
 
 def format_search_context(query: str, results: Sequence[dict]) -> str:
@@ -1081,6 +1535,38 @@ async def update_session(session_id: str, request: Request):
     patch["updated_at"] = datetime.now(timezone.utc).isoformat()
     supa.table("sessions").update(patch).eq("id", session_id).eq("user_id", uid).execute()
     return JSONResponse({"message": "Updated"})
+
+
+@api_router.post("/sessions/{session_id}/improve-title")
+async def improve_session_title(session_id: str, request: Request):
+    """Generate a better title for a session using its first messages."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    # Fetch first few messages
+    msgs = supa.table("messages").select("role,text").eq("session_id", session_id).order("created_at").limit(4).execute()
+    if not msgs.data:
+        return JSONResponse({"error": "No messages found"}, status_code=404)
+
+    conversation = "\n".join(f"{m['role']}: {m['text'][:300]}" for m in msgs.data)
+    prompt = f"Generate a short, descriptive chat title (max 8 words) for this conversation. Output ONLY the title, no quotes, no explanation.\n\n{conversation}"
+
+    base_url, api_key, _, model = get_provider_config("deepseek-v4-flash")
+    if not base_url or not api_key:
+        return JSONResponse({"error": "Provider not configured"}, status_code=503)
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(provider_url(base_url), headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 30, "temperature": 0.5})
+            resp.raise_for_status()
+            new_title = resp.json()["choices"][0]["message"]["content"].strip().strip('"')
+
+        supa.table("sessions").update({"title": new_title, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", session_id).eq("user_id", uid).execute()
+        return JSONResponse({"title": new_title})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── Subscriptions & Pakasir webhook ──────────────────────────────────────────────────────
@@ -1682,6 +2168,302 @@ async def uninstall_user_skill(slug: str, request: Request):
     return JSONResponse({"message": f"Skill '{slug}' uninstalled"})
 
 
+# ── User Memories (Layer B - Persistent Cross-Chat) ────────────────────────────
+
+def fetch_user_memories(user_id: str) -> List[str]:
+    """Fetch active memories for a user. Returns list of memory content strings."""
+    if not supa:
+        return []
+    try:
+        res = supa.table("user_memories").select("content").eq("user_id", user_id).eq("is_active", True).order("created_at", desc=True).limit(20).execute()
+        return [m["content"] for m in res.data]
+    except Exception as e:
+        logger.warning(f"Failed to fetch memories for user {user_id}: {e}")
+        return []
+
+
+async def extract_memories_from_chat(messages: List[dict], user_id: str, model_id: str = "deepseek-v4-flash") -> List[str]:
+    """Extract permanent facts from chat messages via LLM. Returns list of fact strings."""
+    if not messages or not user_id:
+        return []
+
+    # Build conversation text (last 10 messages max to keep extraction prompt focused)
+    recent = messages[-10:] if len(messages) > 10 else messages
+    conversation = "\n".join([f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent])
+    logger.info(f"Extraction conversation context ({len(recent)} messages): {conversation[:500]}...")
+
+    extraction_prompt = f"""Extract permanent facts about the user from this conversation that should be remembered in future chats.
+
+Include:
+- Name, location, job/role
+- Programming languages, frameworks, tools they use
+- Projects they're working on
+- Preferences (hobbies, interests, work style)
+
+Ignore:
+- Temporary questions
+- Sensitive data (health, finance, orientation) unless explicitly requested
+- Generic chat responses
+
+Conversation:
+{conversation}
+
+Output format: One fact per line, max 5 facts. If no permanent facts, output nothing.
+
+Permanent facts:"""
+
+    base_url, api_key, provider, model = get_provider_config(model_id)
+    if not base_url or not api_key:
+        logger.warning("Extraction skipped: no provider config")
+        return []
+
+    try:
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": extraction_prompt}],
+            "stream": False,
+            "temperature": 0.3,
+            "max_tokens": 300,
+        }
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(provider_url(base_url), headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        logger.info(f"Extraction LLM response: {content}")
+        facts = [line.strip().lstrip("-•*").strip() for line in content.split("\n") if line.strip() and not line.strip().startswith("Fakta")]
+        logger.info(f"Parsed facts before filter: {facts}")
+        filtered = [f for f in facts if len(f) > 10 and len(f) < 500][:5]
+        logger.info(f"Filtered facts: {filtered}")
+        return filtered
+    except Exception as e:
+        logger.exception(f"Memory extraction failed: {e}")
+        return []
+
+
+async def save_user_memories(user_id: str, facts: List[str], source_session_id: str = None):
+    """Save new memories to DB after deduplication check."""
+    if not supa or not facts or not user_id:
+        return
+
+    try:
+        # Fetch existing memories for dedup
+        existing = supa.table("user_memories").select("content").eq("user_id", user_id).eq("is_active", True).execute()
+        existing_texts = [m["content"].lower() for m in existing.data]
+
+        # Insert only new facts (simple substring dedup)
+        new_facts = []
+        for fact in facts:
+            fact_lower = fact.lower()
+            is_duplicate = any(fact_lower in existing or existing in fact_lower for existing in existing_texts)
+            if not is_duplicate:
+                new_facts.append({
+                    "user_id": user_id,
+                    "content": fact,
+                    "category": "general",
+                    "source_session_id": source_session_id,
+                })
+
+        if new_facts:
+            supa.table("user_memories").insert(new_facts).execute()
+            logger.info(f"Saved {len(new_facts)} new memories for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to save memories: {e}")
+
+
+def trigger_memory_extraction(messages: List[dict], user_id: str, session_id: str = None):
+    """Fire-and-forget background task to extract and save memories."""
+    if not user_id or not messages:
+        logger.info(f"Memory extraction skipped: user_id={user_id}, messages_count={len(messages) if messages else 0}")
+        return
+
+    logger.info(f"Memory extraction triggered for user {user_id}, {len(messages)} messages")
+
+    async def _extract_and_save():
+        await asyncio.sleep(5)  # Small delay to avoid blocking stream completion
+        logger.info(f"Memory extraction started for user {user_id}")
+        facts = await extract_memories_from_chat(messages, user_id)
+        logger.info(f"Extracted {len(facts)} facts for user {user_id}: {facts}")
+        if facts:
+            await save_user_memories(user_id, facts, session_id)
+            logger.info(f"Saved memories for user {user_id}")
+        else:
+            logger.info(f"No facts to save for user {user_id}")
+
+    asyncio.create_task(_extract_and_save())
+
+
+@api_router.get("/user/memories")
+async def list_user_memories(request: Request):
+    """List all active memories for authenticated user."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    res = supa.table("user_memories").select("id, content, category, created_at, source_session_id").eq("user_id", uid).eq("is_active", True).order("created_at", desc=True).execute()
+    return JSONResponse({"memories": res.data})
+
+
+@api_router.delete("/user/memories/{memory_id}")
+async def delete_user_memory(memory_id: str, request: Request):
+    """Soft-delete a memory (set is_active = false)."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    # Verify ownership before delete
+    check = supa.table("user_memories").select("user_id").eq("id", memory_id).execute()
+    if not check.data or check.data[0]["user_id"] != uid:
+        return JSONResponse({"error": "Memory not found or unauthorized"}, status_code=404)
+
+    supa.table("user_memories").update({"is_active": False}).eq("id", memory_id).execute()
+    return JSONResponse({"message": "Memory deleted"})
+
+
+@api_router.patch("/user/memories/{memory_id}")
+async def update_user_memory(memory_id: str, request: Request):
+    """Edit memory content."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    body = await request.json()
+    content = body.get("content", "").strip()
+    if not content:
+        return JSONResponse({"error": "content required"}, status_code=400)
+
+    # Verify ownership
+    check = supa.table("user_memories").select("user_id").eq("id", memory_id).execute()
+    if not check.data or check.data[0]["user_id"] != uid:
+        return JSONResponse({"error": "Memory not found or unauthorized"}, status_code=404)
+
+    supa.table("user_memories").update({"content": content, "updated_at": "now()"}).eq("id", memory_id).execute()
+    return JSONResponse({"message": "Memory updated"})
+
+
+async def extract_facts_from_text(content: str, model_id: str = "deepseek-v4-flash") -> List[str]:
+    """Extract individual facts from AI-generated summary text."""
+    if not content or not content.strip():
+        return []
+
+    extraction_prompt = f"""Extract individual facts from this AI-generated user summary.
+Output one fact per line, in natural language.
+Ignore opening/closing phrases that don't contain facts.
+
+Summary:
+{content}
+
+Facts (one per line):"""
+
+    base_url, api_key, provider, model = get_provider_config(model_id)
+    if not base_url or not api_key:
+        logger.warning("Import extraction skipped: no provider config")
+        return []
+
+    try:
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": extraction_prompt}],
+            "stream": False,
+            "temperature": 0.3,
+            "max_tokens": 1000,
+        }
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(provider_url(base_url), headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+
+        response_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        logger.info(f"Import extraction response: {response_content[:200]}...")
+
+        facts = [line.strip().lstrip("-•*").strip() for line in response_content.split("\n") if line.strip()]
+        filtered = [f for f in facts if len(f) > 10 and len(f) < 500]
+        logger.info(f"Import extracted {len(filtered)} facts")
+        return filtered
+    except Exception as e:
+        logger.exception(f"Import extraction failed: {e}")
+        return []
+
+
+@api_router.post("/user/memories/import-preview")
+async def import_memory_preview(request: Request):
+    """Extract facts from imported text for preview."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    body = await request.json()
+    content = body.get("content", "").strip()
+    source_platform = body.get("source_platform", "Other")
+
+    if not content:
+        return JSONResponse({"error": "content required"}, status_code=400)
+
+    if len(content) > 51200:  # 50KB limit
+        return JSONResponse({"error": "Content too large. Maximum 50KB for direct processing."}, status_code=413)
+
+    logger.info(f"Import preview request from user {uid}, source: {source_platform}, content length: {len(content)}")
+
+    facts = await extract_facts_from_text(content)
+    if not facts:
+        return JSONResponse({"error": "Could not extract any facts from the content"}, status_code=400)
+
+    return JSONResponse({"facts": facts})
+
+
+@api_router.post("/user/memories/import-confirm")
+async def import_memory_confirm(request: Request):
+    """Save imported facts to user_memories."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    body = await request.json()
+    facts = body.get("facts", [])
+    source_platform = body.get("source_platform", "Other")
+
+    if not facts or not isinstance(facts, list):
+        return JSONResponse({"error": "facts array required"}, status_code=400)
+
+    logger.info(f"Import confirm from user {uid}, source: {source_platform}, facts: {len(facts)}")
+
+    try:
+        # Fetch existing for dedup
+        existing = supa.table("user_memories").select("content").eq("user_id", uid).eq("is_active", True).execute()
+        existing_texts = [m["content"].lower() for m in existing.data]
+
+        new_facts = []
+        for fact in facts:
+            fact_str = str(fact).strip()
+            if len(fact_str) < 10 or len(fact_str) > 500:
+                continue
+
+            # Dedup check
+            fact_lower = fact_str.lower()
+            is_duplicate = any(fact_lower in existing or existing in fact_lower for existing in existing_texts)
+            if not is_duplicate:
+                new_facts.append({
+                    "user_id": uid,
+                    "content": fact_str,
+                    "category": "imported",
+                    "source_session_id": None,
+                })
+
+        if new_facts:
+            supa.table("user_memories").insert(new_facts).execute()
+            logger.info(f"Imported {len(new_facts)} new facts for user {uid} from {source_platform}")
+
+        return JSONResponse({"imported_count": len(new_facts)})
+    except Exception as e:
+        logger.exception(f"Import confirm failed: {e}")
+        return JSONResponse({"error": "Failed to save memories"}, status_code=500)
+
+
 def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> List[dict]:
     room_line = f"Current room: {payload.room}." if payload.room else ""
     attachment_line = (
@@ -1690,11 +2472,23 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
         else ""
     )
     web_line = f"\n\n{web_context}" if web_context else ""
-    search_mode_line = (
-        f"\n\nINSTRUKSI MODE PENCARIAN: {payload.search_mode_prompt.strip()}"
-        if payload.search_mode_prompt and payload.search_mode_prompt.strip()
-        else ""
-    )
+
+    # Auto web search instruction
+    auto_search_instruction = """
+
+AUTO WEB SEARCH:
+Gunakan tool pencarian web KAPAN SAJA kamu tidak yakin dengan jawabanmu atau informasi yang kamu miliki mungkin sudah usang.
+Jangan tunggu instruksi eksplisit dari user — jika ada keraguan, search dulu sebelum jawab.
+Contoh kapan harus search: data terkini (harga, berita, cuaca), info yang berubah-ubah, atau saat kamu ragu.
+"""
+
+    # Layer B: Inject user memories into system prompt
+    memory_block = ""
+    if payload.user_id:
+        memories = fetch_user_memories(payload.user_id)
+        if memories:
+            memory_block = "\n\nMEMORY TENTANG USER:\n" + "\n".join(f"- {m}" for m in memories)
+            memory_block += "\n\nGunakan informasi di atas secara natural dalam respons. Jangan sebutkan 'dari memory system' kecuali user bertanya."
     qna_rules = (
         "\n\nATURAN KLARIFIKASI (QNA) - PENTING:\n"
         "Jika permintaan pengguna ambigu/samar, WAJIB gunakan format QNA berikut (jangan tebak-tebakan):\n"
@@ -1757,11 +2551,46 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
             "Gunakan heading (#, ##, ###), tabel Markdown, bullet list, bold, dan format lain yang sesuai. "
             "Sertakan semua konten yang diminta secara lengkap \u2014 judul, isi, tabel, catatan, dll \u2014 seolah-olah itu adalah dokumen final yang siap dicetak. "
             "Di akhir respons, tambahkan baris: '> **[DOKUMEN SIAP]** Klik tombol *Unduh Dokumen* di bawah untuk menyimpan sebagai PDF, Word, atau format lainnya.' "
+            "\n\nPENTING - ATURAN PERBANDINGAN PRODUK:"
+            "Jika pengguna meminta perbandingan produk (bandingkan X vs Y, compare, vs, versus, dll), "
+            "WAJIB keluarkan data terstruktur dalam format XML berikut SETELAH teks penjelasan:\n"
+            "<COMPARISON_DATA>\n"
+            "{\n"
+            '  "productA": {\n'
+            '    "name": "Nama Produk A",\n'
+            '    "image": "URL gambar produk A dari web (jika ada)",\n'
+            '    "avgPrice": 0,\n'
+            '    "specs": {\n'
+            '      "chipset": "...", "ram": "...", "storage": "...",\n'
+            '      "camera": "...", "battery": "...", "display": "...",\n'
+            '      "os": "...", "features": ["fitur1", "fitur2"]\n'
+            "    }\n"
+            "  },\n"
+            '  "productB": { ... format sama ... },\n'
+            '  "stores": {\n'
+            '    "productA": [\n'
+            '      {"marketplace": "Shopee|Tokopedia|Bukalapak|Blibli|Lazada", "storeName": "...", "price": 0, "shipping": "Gratis Ongkir", "rating": 4.9, "badge": "Power Merchant", "url": "https://..."}\n'
+            "    ],\n"
+            '    "productB": [ ... format sama ... ]\n'
+            "  },\n"
+            '  "aiInsight": "Rekomendasi AI dalam satu paragraf...",\n'
+            '  "images": ["url_gambar1.jpg", "url_gambar2.jpg"]\n'
+            "}\n"
+            "</COMPARISON_DATA>\n\n"
+            "ATURAN COMPARISON_DATA:\n"
+            "- HANYA keluarkan jika user meminta perbandingan produk\n"
+            "- avgPrice: harga rata-rata dalam Rupiah (angka, tanpa format)\n"
+            "- marketplace: HANYA salah satu dari: Shopee, Tokopedia, Bukalapak, Blibli, Lazada\n"
+            "- rating: antara 4.5 dan 4.9\n"
+            "- images: minimal 3 URL gambar produk dari web\n"
+            "- aiInsight: rekomendasi singkat berdasarkan data yang ditemukan\n"
+            "- Sebelum tag COMPARISON_DATA, berikan teks penjelasan singkat dalam format markdown biasa\n"
             + qna_rules
             + skill_block
             + f"{room_line} {attachment_line}".strip()
-            + search_mode_line
             + effort_block
+            + memory_block
+            + auto_search_instruction
             + web_line
         ),
     }
@@ -1769,19 +2598,52 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
     return [system, *messages]
 
 
+def get_model_specific_config(model_id: str, effort_level: str, has_web_context: bool) -> dict:
+    """Return model-specific API parameters for Claude models."""
+    base = {
+        "temperature": 0.7,
+        "stream": True,
+    }
+
+    effort_config = EFFORT_CONFIGS.get(effort_level, EFFORT_CONFIGS["low"])
+    base["max_tokens"] = effort_config["max_tokens"]
+
+    # Claude Sonnet 4.5 — manual thinking with budget
+    if model_id in ["claude-sonnet-4-5", "claude-sonnet-4.5", "claude-sonnet-4-5-1m"]:
+        budget = 8000 if effort_level in ["high", "xhigh", "max"] else 4000
+        base["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        # Increase max_tokens to accommodate thinking
+        base["max_tokens"] = max(base["max_tokens"], budget + 4000)
+
+    # Claude Sonnet 5 — adaptive thinking with effort
+    elif model_id == "claude-sonnet-5":
+        base["thinking"] = {"type": "adaptive"}
+        # Map effort_level to Claude's effort parameter
+        effort_map = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "max"}
+        base["effort"] = effort_map.get(effort_level, "medium")
+
+    # Claude Fable 5 — always adaptive, only effort param
+    elif model_id == "claude-fable-5":
+        effort_map = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "max"}
+        base["effort"] = effort_map.get(effort_level, "medium")
+        # Do NOT send thinking param — Fable always uses adaptive internally
+
+    return base
+
+
 def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterator[str]:
     if not has_user_content(payload.messages):
         yield sse("error", {"message": "Harap kirim pesan yang tidak kosong."})
         return
 
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
+    base_url, api_key, provider, model = get_provider_config(payload.model_id)
     timeout = env_float("OPENAI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
-    model = provider_model(payload.model_id, payload.auto_mode)
+    if payload.auto_mode:
+        model = resolve_provider_model(None, auto_mode=True)
 
     yield sse(
         "meta",
-        {"provider": PROVIDER_NAME, "model": model, "autoMode": payload.auto_mode},
+        {"provider": provider, "model": model, "autoMode": payload.auto_mode},
     )
 
     if not base_url or not api_key or not model:
@@ -1789,31 +2651,32 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
             "error",
             {
                 "message": (
-                    f"{PROVIDER_NAME} belum dikonfigurasi. Set OPENAI_BASE_URL, "
-                    "OPENAI_API_KEY, dan OPENAI_MODEL di backend/.env."
+                    f"{provider} belum dikonfigurasi. Set "
+                    f"{'SUMODOP_BASE_URL dan SUMODOP_API_KEY' if is_sumopod_model(payload.model_id) else 'OPENAI_BASE_URL dan OPENAI_API_KEY'} "
+                    "di backend/.env."
                 )
             },
         )
         return
 
+    # Get model-specific config (thinking, effort, max_tokens)
+    model_config = get_model_specific_config(payload.model_id or DEFAULT_MODEL_ID, payload.effort_level, bool(web_context))
+
     body = {
         "model": model,
         "messages": normalize_messages(payload, web_context=web_context),
-        "stream": True,
-        "temperature": 0.7,
+        **model_config,
     }
-    effort = EFFORT_CONFIGS.get(payload.effort_level, EFFORT_CONFIGS["low"])
-    body["max_tokens"] = effort["max_tokens"]
-    # When web_search is active, use higher reasoning effort so model
-    # fully synthesizes web context before generating the answer.
-    # When only reasoning (no web), use medium effort.
-    if payload.reasoning:
-        body["reasoning_effort"] = "high" if web_context else "medium"
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
     }
+
+    # Add interleaved thinking beta header for Sonnet 4.5 (enables thinking during tool calls)
+    if payload.model_id in ["claude-sonnet-4-5", "claude-sonnet-4.5", "claude-sonnet-4-5-1m"]:
+        headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
 
     try:
         with requests.post(
@@ -1827,11 +2690,11 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
             if response.status_code >= 400:
                 detail = response.text[:MAX_PROVIDER_ERROR_CHARS]
                 logger.warning(
-                    "%s error %s: %s", PROVIDER_NAME, response.status_code, detail
+                    "%s error %s: %s", provider, response.status_code, detail
                 )
                 yield sse(
                     "error",
-                    {"message": f"{PROVIDER_NAME} error {response.status_code}: {detail}"},
+                    {"message": f"{provider} error {response.status_code}: {detail}"},
                 )
                 return
 
@@ -1868,8 +2731,8 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
 
             yield sse("done", {"status": "completed"})
     except requests.RequestException as exc:
-        logger.exception("%s streaming failed", PROVIDER_NAME)
-        yield sse("error", {"message": f"Gagal konek ke {PROVIDER_NAME}: {exc}"})
+        logger.exception("%s streaming failed", provider)
+        yield sse("error", {"message": f"Gagal konek ke {provider}: {exc}"})
 
 
 # ── Document Generation ─────────────────────────────────────────────────────
@@ -2639,15 +3502,16 @@ _active_doc_gen: dict[str, asyncio.Event] = {}
 _doc_gen_semaphore = asyncio.Semaphore(2)  # Max 2 concurrent doc gen
 
 
-async def _cleanup_generated_file(file_id: str, tmp_dir: str, delay: int = 600):
-    """Remove generated file and temp dir after delay."""
+async def _cleanup_generated_file(file_id: str, file_path: str, delay: int = 86400):
+    """Remove generated file and temp dir after delay (default 24h)."""
     await asyncio.sleep(delay)
-    if supa:
+    if os.path.exists(file_path):
         try:
-            supa.table("generated_files").delete().eq("id", file_id).execute()
-        except Exception:
-            pass
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+            os.remove(file_path)
+            logger.info("Cleaned up generated file: %s", file_path)
+        except Exception as e:
+            logger.warning("Failed to remove generated file %s: %s", file_path, e)
+    # Keep DB record so download endpoint can give informative message
 
 
 @api_router.post("/generate-document-cancel")
@@ -2716,11 +3580,10 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
     # Phase 1: Stream code generation
     yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'message': 'Generating code...', 'gen_id': gen_id})}\n\n"
 
-    # Use OpenAI-compatible API (works with AIMurah / DeepSeek / Claude)
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
+    # Use provider routing based on model_id
+    base_url, api_key, provider_name, resolved_model = get_provider_config(model_id)
     if not base_url or not api_key:
-        yield f"data: {json.dumps({'type': 'error', 'message': 'OPENAI_BASE_URL dan OPENAI_API_KEY belum dikonfigurasi'})}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'message': f'{provider_name} belum dikonfigurasi'})}\n\n"
         return
 
     clean_base = base_url.rstrip("/")
@@ -2732,7 +3595,7 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         "Content-Type": "application/json",
     }
     payload = {
-        "model": model_id,
+        "model": resolved_model,
         "messages": [
             {"role": "system", "content": DOC_GEN_SYSTEM},
             {"role": "user", "content": prompt},
@@ -2846,11 +3709,13 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         return
 
     try:
-        tmp_dir = tempfile.mkdtemp(prefix="docgen_")
-        script_path = os.path.join(tmp_dir, f"gen_{uuid.uuid4().hex[:8]}.py")
-        file_path = os.path.join(tmp_dir, output_file)
+        docs_dir = "/tmp/microagent_docs"
+        os.makedirs(docs_dir, exist_ok=True)
+        gen_id = uuid.uuid4().hex[:12]
+        file_path = os.path.join(docs_dir, f"{gen_id}_{output_file}")
+        script_path = os.path.join(docs_dir, f"gen_{gen_id}.py")
 
-        patched_code = f'import os\nos.chdir(r"{tmp_dir}")\n\n{full_code}'
+        patched_code = f'import os\nos.chdir(r"{docs_dir}")\n\n{full_code}'
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(patched_code)
 
@@ -2866,22 +3731,25 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
 
         if result.returncode != 0:
             yield f"data: {json.dumps({'type': 'error', 'message': result.stderr[:500]})}\n\n"
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            # Clean up script file
+            if os.path.exists(script_path):
+                os.remove(script_path)
             return
 
         # Check if exact file exists
         if not os.path.exists(file_path):
-            # Try to find any non-script files in tmp_dir
-            found_files = [f for f in os.listdir(tmp_dir) if not f.endswith(".py")]
+            # Try to find any non-script files in docs_dir
+            found_files = [f for f in os.listdir(docs_dir) if not f.endswith(".py") and f.startswith(gen_id)]
             if found_files:
                 # Use the first found file
                 output_file = found_files[0]
-                file_path = os.path.join(tmp_dir, output_file)
+                file_path = os.path.join(docs_dir, output_file)
                 logger.info(f"DocGen: exact file not found, using: {output_file}")
             else:
-                logger.error(f"DocGen: no files created. Files in dir: {os.listdir(tmp_dir)}")
+                logger.error(f"DocGen: no files created. Files in dir: {os.listdir(docs_dir)}")
                 yield f"data: {json.dumps({'type': 'error', 'message': f'File tidak ditemukan setelah eksekusi. Periksa kode Python.'})}\n\n"
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+                if os.path.exists(script_path):
+                    os.remove(script_path)
                 return
 
         # Register file in Supabase
@@ -2897,8 +3765,12 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
             except Exception as e:
                 logger.warning(f"Failed to register generated file: {e}")
 
-        # Schedule cleanup after 10 minutes
-        asyncio.create_task(_cleanup_generated_file(file_id, tmp_dir, delay=600))
+        # Clean up script file
+        if os.path.exists(script_path):
+            os.remove(script_path)
+
+        # Schedule cleanup after 24 hours
+        asyncio.create_task(_cleanup_generated_file(file_id, file_path, delay=86400))
 
         # Phase 3: Done
         yield f"data: {json.dumps({'type': 'complete', 'file_id': file_id, 'filename': output_file, 'download_url': f'/api/download/{file_id}/{output_file}'})}\n\n"
@@ -2916,15 +3788,27 @@ async def download_generated_file(file_id: str, filename: str):
     try:
         record = supa.table("generated_files").select("file_path").eq("id", file_id).single().execute()
         if not record.data:
-            return JSONResponse({"error": "File tidak ditemukan atau sudah expired"}, status_code=404)
+            return JSONResponse({"error": "File sudah expired atau tidak ditemukan. Silakan generate ulang."}, status_code=404)
         path = record.data["file_path"]
         if not os.path.exists(path):
-            return JSONResponse({"error": "File sudah dihapus"}, status_code=404)
+            return JSONResponse({"error": "File sudah dihapus karena sudah lebih dari 24 jam. Silakan generate ulang."}, status_code=404)
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         media_type = MEDIA_TYPES.get(ext, "application/octet-stream")
         return FileResponse(path=path, filename=filename, media_type=media_type)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@api_router.post("/fetch-url")
+async def fetch_url_endpoint(request: Request):
+    """Fetch and extract content from a URL. Useful for web scraping."""
+    body = await request.json()
+    url = body.get("url", "").strip()
+    if not url:
+        return JSONResponse({"error": "URL required"}, status_code=400)
+
+    content = await _fetch_url(url)
+    return JSONResponse({"url": url, "content": content})
 
 
 @api_router.get("/", response_class=HTMLResponse)
@@ -3217,14 +4101,21 @@ async def get_status_checks():
     return status_checks
 
 
-async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]:
+async def stream_chat_response(payload: ChatStreamRequest, request: Request = None) -> AsyncIterator[str]:
+    # Extract user_id from auth token if not provided in payload
+    effective_user_id = payload.user_id
+    if not effective_user_id and request:
+        effective_user_id = _get_user_id(request)
+
+    logger.info(f"stream_chat_response: payload.user_id={payload.user_id}, effective_user_id={effective_user_id}, messages={len(payload.messages)}")
+
     # ── Token check & deduct BEFORE any AI call ──────────────────────────────
     model_id_for_cost = payload.model_id or DEFAULT_MODEL_ID
     token_cost = get_token_cost(model_id_for_cost)
     token_deduction = {"success": True, "cost": 0, "balance": 0}
 
-    if payload.user_id:
-        token_deduction = await deduct_token(payload.user_id, model_id_for_cost)
+    if effective_user_id:
+        token_deduction = await deduct_token(effective_user_id, model_id_for_cost)
         if not token_deduction["success"]:
             yield sse("error", {
                 "message": f"Token tidak cukup. Butuh {token_deduction['required']} token, sisa {token_deduction['balance']}.",
@@ -3245,7 +4136,72 @@ async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]
         yield sse("status", {"phase": "skill_loading", "status": "completed", "skill_slug": payload.skill_slug})
 
     web_context = ""
-    if payload.web_search:
+    is_comparison = False
+    
+    # ── Comparison Detection & Multi-Query Search ─────────────────────────────
+    last_user_msg = last_user_prompt(payload)
+    if payload.comparison or is_comparison_request(last_user_msg):
+        is_comparison = True
+        product_a, product_b = extract_comparison_products(last_user_msg)
+        
+        yield sse(
+            "status",
+            {
+                "phase": "comparison_search",
+                "status": "started",
+                "product_a": product_a,
+                "product_b": product_b,
+                "message": f"Membandingkan {product_a} vs {product_b}...",
+            },
+        )
+        
+        # Build deterministic comparison data (always available, no API keys needed)
+        comparison_data = build_comparison_data(product_a, product_b)
+        yield sse("comparison_data", comparison_data)
+        
+        try:
+            all_results, sources = await comparison_search_pipeline(
+                product_a, product_b,
+                lambda msg: None  # Status already yielded
+            )
+            
+            # Build comparison context
+            comparison_context = f"\n\nPERBANDINGAN PRODUK:\n"
+            comparison_context += f"Produk A: {product_a}\n"
+            comparison_context += f"Produk B: {product_b}\n\n"
+            comparison_context += "Hasil pencarian untuk perbandingan:\n\n"
+            
+            for r in all_results[:30]:  # Limit to 30 results
+                title = r.get("title", "")
+                url = r.get("url", "")
+                content = (r.get("content") or "")[:500]
+                comparison_context += f"[{title}]\nURL: {url}\n{content}\n\n"
+            
+            web_context = comparison_context
+            
+            yield sse(
+                "status",
+                {
+                    "phase": "comparison_search",
+                    "status": "completed",
+                    "result_count": len(all_results),
+                    "sources": [{"title": s["title"], "url": s["url"]} for s in sources[:10]],
+                    "message": f"Ditemukan {len(all_results)} hasil dari {len(sources)} sumber",
+                },
+            )
+            
+        except Exception as exc:
+            logger.warning("Comparison search failed: %s", exc)
+            yield sse(
+                "status",
+                {
+                    "phase": "comparison_search",
+                    "status": "failed",
+                    "message": f"Pencarian perbandingan gagal: {exc}",
+                },
+            )
+
+    elif payload.web_search:
         query = extract_search_query(payload)
         provider = "tavily" if env_str("TAVILY_API_KEY") else "firecrawl"
         yield sse(
@@ -3308,6 +4264,17 @@ async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]
                 },
             )
 
+    # If web search is disabled, still emit a status so frontend knows
+    if not payload.web_search and not is_comparison:
+        yield sse(
+            "status",
+            {
+                "phase": "web_search",
+                "status": "skipped",
+                "message": "Web search not needed for this query",
+            },
+        )
+
     # If both web_search and reasoning are enabled, disable reasoning during web search
     # so model focuses entirely on synthesizing web context first.
     # Reasoning is still sent to provider but web context is always fully injected first.
@@ -3331,7 +4298,15 @@ async def stream_chat_response(payload: ChatStreamRequest) -> AsyncIterator[str]
 
     # Refund tokens on provider error (user shouldn't pay for failed requests)
     if has_error and token_deduction.get("success") and token_deduction.get("cost", 0) > 0:
-        await refund_token(payload.user_id, model_id_for_cost, token_deduction["cost"])
+        await refund_token(effective_user_id, model_id_for_cost, token_deduction["cost"])
+
+    # Layer B: Trigger memory extraction (fire-and-forget background task)
+    logger.info(f"Memory extraction check: has_error={has_error}, effective_user_id={effective_user_id}")
+    if not has_error and effective_user_id:
+        messages_for_extraction = [m.model_dump() for m in payload.messages if m.content.strip()]
+        trigger_memory_extraction(messages_for_extraction, effective_user_id, session_id=None)
+    else:
+        logger.info(f"Memory extraction skipped at stream endpoint: has_error={has_error}, effective_user_id={effective_user_id}")
 
 
 # ── Improve Prompt ─────────────────────────────────────────────────────────
@@ -3367,13 +4342,12 @@ async def improve_prompt(req: ImprovePromptRequest):
     if len(req.prompt) < 3:
         return JSONResponse({"success": False, "error": "Prompt terlalu pendek"}, status_code=400)
 
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
+    # Use deepseek for improve-prompt
+    model_id = "deepseek-v4-flash"
+    base_url, api_key, provider_name, model = get_provider_config(model_id)
     if not base_url or not api_key:
         return JSONResponse({"success": False, "error": "Provider belum dikonfigurasi"}, status_code=500)
 
-    # Use claude-sonnet for improve-prompt (no reasoning phase, reliable output)
-    model = "claude-sonnet-4.6"
     context_text = f"\n\nKonteks percakapan:\n{req.context.strip()}" if req.context.strip() else ""
     user_content = f"Improve this prompt:{context_text}\n\nOriginal: {req.prompt}"
 
@@ -3423,9 +4397,9 @@ async def improve_prompt(req: ImprovePromptRequest):
 
 
 @api_router.post("/chat/stream")
-async def chat_stream(payload: ChatStreamRequest):
+async def chat_stream(payload: ChatStreamRequest, request: Request):
     return StreamingResponse(
-        stream_chat_response(payload),
+        stream_chat_response(payload, request),
         media_type="text/event-stream; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
@@ -3553,13 +4527,11 @@ async def run_deep_research(query: str):
     def evt(data: dict) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
+    base_url, api_key, provider_name, model = get_provider_config(DEFAULT_MODEL_ID)
     if not base_url or not api_key:
         yield evt({"type": "error", "message": "Provider belum dikonfigurasi"})
         return
 
-    model = MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
     timeout_obj = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
     headers_req = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -3955,10 +4927,9 @@ async def upload_and_analyze(
     chat_history: str = Form(default="[]"),
 ):
     """Analyze uploaded files (images, PDF, DOCX, XLSX, TXT) using the AI model."""
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
+    base_url, api_key, provider_name, model = get_provider_config(DEFAULT_MODEL_ID)
     if not base_url or not api_key:
-        return JSONResponse({"error": "Provider belum dikonfigurasi"}, status_code=500)
+        return JSONResponse({"error": f"{provider_name} belum dikonfigurasi"}, status_code=500)
 
     # Validate and process files
     file_texts: List[str] = []
@@ -4007,7 +4978,6 @@ async def upload_and_analyze(
     except Exception:
         history = []
 
-    model = MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
     timeout = env_float("OPENAI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
     headers_req = {
         "Authorization": f"Bearer {api_key}",
@@ -4054,116 +5024,8 @@ async def upload_and_analyze(
     })
 
 
-# ── Supercomputer / Agentic AI ─────────────────────────────────────────────────
 
-class SupercomputerRequest(BaseModel):
-    prompt: str
-    mode: str = "efficient"
-
-    @field_validator("prompt")
-    @classmethod
-    def trim_prompt(cls, v: str) -> str:
-        return v.strip()
-
-
-async def run_supercomputer_agent(prompt: str, mode: str = "efficient"):
-    """SSE generator for supercomputer agentic AI processing.
-    Emits events with 'type' field for the run page to consume."""
-    base_url = env_str("OPENAI_BASE_URL")
-    api_key = env_str("OPENAI_API_KEY")
-
-    step_sequence = [
-        ("plan", "Analysing task requirements and breaking down into sub-goals..."),
-        ("search", "Querying web sources and gathering intelligence..."),
-        ("think", "Reasoning through findings and building strategy..."),
-        ("execute", "Executing multi-step action plan..."),
-    ]
-    if mode == "deep":
-        step_sequence.insert(2, ("search", "Performing deep secondary research sweep..."))
-    if mode == "creative":
-        step_sequence.insert(3, ("think", "Exploring creative angles and alternative approaches..."))
-    if mode == "expert":
-        step_sequence.insert(2, ("search", "Querying expert-level domain sources..."))
-        step_sequence.insert(4, ("think", "Applying expert reasoning frameworks..."))
-
-    yield sse("message", {"type": "step", "step_type": "plan", "message": "Initialising supercomputer agent runtime..."})
-    await asyncio.sleep(0.4)
-
-    for step_type, step_msg in step_sequence:
-        yield sse("message", {"type": "step", "step_type": step_type, "message": step_msg})
-        await asyncio.sleep(0.6)
-
-    if base_url and api_key:
-        try:
-            model = MODEL_ID_TO_PROVIDER.get(DEFAULT_MODEL_ID, DEFAULT_MODEL_ID)
-            timeout = env_float("OPENAI_TIMEOUT_SECONDS", 120.0)
-            headers_req = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            system_msg = (
-                "You are a supercomputer-grade agentic AI assistant. "
-                "You have access to a suite of tools: web search, code execution, "
-                "file operations, and multi-step reasoning. "
-                "Provide comprehensive, well-structured answers. "
-                f"User prompt: {prompt}"
-            )
-            messages = [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": prompt},
-            ]
-            body = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": 8192,
-                "temperature": 0.7,
-                "stream": True,
-            }
-            full_content = ""
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", provider_url(base_url), headers=headers_req, json=body) as resp:
-                    if resp.status_code >= 400:
-                        error_text = await resp.aread()
-                        yield sse("message", {"type": "error", "error": error_text[:500].decode()})
-                        return
-                    async for chunk in resp.aiter_lines():
-                        if chunk.startswith("data: "):
-                            data_str = chunk[6:]
-                            if data_str.strip() == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                                delta = data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    full_content += content
-                            except json.JSONDecodeError:
-                                continue
-            yield sse("message", {"type": "complete", "response": full_content})
-        except Exception as exc:
-            yield sse("message", {"type": "error", "error": str(exc)})
-    else:
-        mock = f"**Supercomputer analysis for:** {prompt}\n\n"
-        mock += "1. **Task Decomposition** — Broken into 4 sub-tasks\n"
-        mock += "2. **Parallel Execution** — 3 sub-agents deployed\n"
-        mock += "3. **Web Research** — 12 sources analysed\n"
-        mock += "4. **Synthesis** — Findings merged into coherent response\n\n"
-        mock += "This is a mock response. Configure OPENAI_BASE_URL and OPENAI_API_KEY for live agentic AI."
-        yield sse("message", {"type": "complete", "response": mock})
-
-
-@api_router.post("/supercomputer")
-async def supercomputer_endpoint(req: SupercomputerRequest):
-    return StreamingResponse(
-        run_supercomputer_agent(req.prompt, req.mode),
-        media_type="text/event-stream; charset=utf-8",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
+# ── Studio and Supercomputer endpoints removed - to be rebuilt from scratch ──
 
 app.include_router(api_router)
 

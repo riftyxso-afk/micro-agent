@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Paperclip,
-  Globe,
   Wand2,
   ArrowUp,
   ChevronDown,
@@ -21,7 +20,6 @@ export const LandingComposer = () => {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState(() => getModelById(DEFAULT_MODEL_ID));
   const [isAutoMode, setIsAutoMode] = useState(false);
-  const [webSearch, setWebSearch] = useState(false);
   const [activeChip, setActiveChip] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -54,9 +52,6 @@ export const LandingComposer = () => {
     }
     if (activeChip) {
       params.set("chipId", activeChip);
-    }
-    if (webSearch) {
-      params.set("webSearch", "1");
     }
     const qs = params.toString();
     navigate(qs ? `/home?${qs}` : "/home");
@@ -122,20 +117,6 @@ export const LandingComposer = () => {
               className="ma-focus grid h-9 w-9 place-items-center rounded-xl text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F3F4F6] hover:text-[#111111] active:scale-[0.95]"
             >
               <Paperclip size={18} strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              data-testid="landing-web-button"
-              aria-label={webSearch ? "Web search on" : "Search the web"}
-              aria-pressed={webSearch}
-              onClick={() => setWebSearch((w) => !w)}
-              className={`ma-focus grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-                webSearch
-                  ? "bg-[#EFF4FF] text-[#3B6EF6]"
-                  : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
-              }`}
-            >
-              <Globe size={18} strokeWidth={1.75} />
             </button>
           </div>
 

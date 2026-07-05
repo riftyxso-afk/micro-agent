@@ -26,7 +26,6 @@ export default function HomeWorkspace() {
   const initialAutoMode = searchParams.get("autoMode") === "1";
   const initialChipId = searchParams.get("chipId");
   const initialChip = QUICK_CHIPS.find((chip) => chip.id === initialChipId);
-  const initialWebSearch = searchParams.get("webSearch") === "1";
 
   const [activeNav, setActiveNav] = useState("new");
   const [activeDialog, setActiveDialog] = useState(null);
@@ -95,7 +94,7 @@ export default function HomeWorkspace() {
     });
   };
 
-  const handleSend = (text, attachments = [], searchModePrompt = "", searchModeId = "off", modeWebSearch = false, skillSlug = null, effortLevel = "low") => {
+  const handleSend = (text, attachments = [], searchModePrompt = "", searchModeId = "web", modeWebSearch = true, skillSlug = null, effortLevel = "low") => {
     const allowed = incrementGuestCount();
     if (!allowed) {
       navigate("/auth", { state: { from: "/home", tab: "login" } });
@@ -202,7 +201,7 @@ export default function HomeWorkspace() {
 
       <main
         className={`relative flex min-h-dvh flex-col items-center justify-center px-4 pb-28 pt-20 transition-[margin] duration-300 ease-out sm:px-8 sm:pt-24 md:pb-16 ${
-          collapsed ? "md:ml-[68px]" : "md:ml-[86px]"
+          collapsed ? "md:ml-[56px]" : "md:ml-[86px]"
         }`}
       >
         <div className="w-full max-w-[680px] -translate-y-[2vh]">
@@ -247,7 +246,6 @@ export default function HomeWorkspace() {
             <PromptComposer
               placeholder={placeholder}
               initialValue={composerInitial}
-              initialWebSearch={initialWebSearch}
               onSend={handleSend}
               model={model}
               autoMode={autoMode}

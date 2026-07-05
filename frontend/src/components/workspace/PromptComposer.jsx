@@ -17,7 +17,6 @@ import {
   FileText,
   Check,
   Lock,
-  Power,
   GraduationCap,
   Users,
   Telescope,
@@ -26,6 +25,7 @@ import {
   ChevronLeft,
   BookOpen,
   Cpu,
+  ArrowLeftRight,
 } from "lucide-react";
 import { SkillPicker } from "@/components/workspace/SkillPicker";
 import { ToolsMenu } from "@/components/workspace/ToolsMenu";
@@ -65,14 +65,6 @@ const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
 
 const SEARCH_MODES = [
   {
-    id: "off",
-    label: "Off",
-    Icon: Power,
-    description: "Use LLM knowledge only",
-    systemPrompt: "",
-    webSearch: false,
-  },
-  {
     id: "web",
     label: "Web",
     Icon: Globe,
@@ -87,7 +79,7 @@ const SEARCH_MODES = [
     description: "In-depth, more detailed output",
     systemPrompt: "Berikan jawaban yang sangat mendalam, komprehensif, dan penuh detail teknis. Bahas dari semua sudut pandang, sertakan contoh nyata, edge case, dan pertimbangan nuansa. Berpikirlah seperti pakar di bidang ini.",
     badge: "NEW",
-    webSearch: false,
+    webSearch: true,
   },
   {
     id: "academic",
@@ -145,20 +137,45 @@ const EFFORT_LEVELS = [
 const improvePrompt = (text) => {
   const t = text.trim();
   if (!t || t.length < 3) return "";
-  if (t.length < 30) {
-    const lower = t.toLowerCase();
-    if (lower.includes("build") || lower.includes("create") || lower.includes("make")) {
-      return `${t}. Include a clear structure, modern best practices, and explain key implementation details.`;
-    }
-    if (lower.includes("explain") || lower.includes("what") || lower.includes("how")) {
-      return `${t}. Provide a thorough explanation with real-world examples and common use cases.`;
-    }
-    if (lower.includes("compare") || lower.includes("vs") || lower.includes("difference")) {
-      return `${t}. Compare pros, cons, performance, and ideal use cases for each option.`;
-    }
-    return `${t}. Be detailed, structured, and include practical examples where relevant.`;
+  const lower = t.toLowerCase();
+
+  const hasCode = /```|\b(function|const|let|var|import|export|class|def |print)\b/.test(t);
+  const hasCompare = lower.includes("compare") || lower.includes("vs") || lower.includes("versus") || lower.includes("bandingkan") || lower.includes("difference");
+  const hasExplain = lower.includes("explain") || lower.includes("what") || lower.includes("how") || lower.includes("why") || lower.includes("jelaskan") || lower.includes("apa");
+  const hasCreate = lower.includes("create") || lower.includes("build") || lower.includes("make") || lower.includes("generate") || lower.includes("buat") || lower.includes("tulis");
+  const hasAnalyze = lower.includes("analyze") || lower.includes("analisa") || lower.includes("review") || lower.includes("evaluate");
+  const isQuestion = t.endsWith("?");
+
+  const sections = [];
+
+  // Objective
+  if (hasCompare) sections.push("## Objective\nProvide a balanced, feature-by-feature comparison highlighting pros, cons, and ideal use cases for each option.");
+  else if (hasCreate) sections.push("## Objective\nGenerate a complete, production-ready output following modern best practices.");
+  else if (hasExplain || isQuestion) sections.push("## Objective\nProvide a clear, thorough explanation that builds understanding from first principles.");
+  else if (hasAnalyze) sections.push("## Objective\nAnalyze the subject critically, covering strengths, weaknesses, and actionable insights.");
+  else sections.push("## Objective\nAddress the prompt with depth, clarity, and practical relevance.");
+
+  // Context
+  sections.push("## Context\nAssume I have intermediate domain knowledge. Avoid oversimplifying, but define specialized terms when first introduced.");
+
+  // Format
+  if (hasCode) {
+    sections.push("## Format\n- Provide code snippets with syntax highlighting\n- Explain the logic behind key implementation decisions\n- Include error handling and edge cases");
+  } else if (hasCompare) {
+    sections.push("## Format\n- Use a comparison table for quick reference\n- Follow with detailed analysis per category\n- End with a clear recommendation based on different use cases");
+  } else if (isQuestion) {
+    sections.push("## Format\n- Start with a concise answer (1-2 sentences)\n- Then elaborate with reasoning, evidence, and nuance\n- Use examples or analogies to reinforce understanding");
+  } else {
+    sections.push("## Format\n- Structure the response with clear headings and subheadings\n- Use bullet points or numbered lists for key information\n- Include practical examples where relevant");
   }
-  return `${t}\n\nPlease provide a detailed, well-structured response with practical examples and key considerations.`;
+
+  // Constraints
+  const constraints = ["Be thorough but concise — prioritize signal over noise."];
+  if (hasCreate) constraints.push("Output must be complete and copy-paste ready.");
+  if (hasExplain || isQuestion) constraints.push("If there are multiple perspectives or schools of thought, present them fairly.");
+  sections.push(`## Constraints\n- ${constraints.join("\n- ")}`);
+
+  return `## Prompt\n${t}\n\n${sections.join("\n\n")}`;
 };
 
 export const PromptComposer = ({
@@ -176,23 +193,20 @@ export const PromptComposer = ({
   onAutoModeToggle,
   compact = false,
   initialValue = "",
-  initialWebSearch = false,
-  initialSearchMode = "off",
   initialSkill = null,
   initialEffortLevel = "low",
-  webSearchEnabled,
-  onWebSearchToggle,
   reasoningEnabled,
   onReasoningToggle,
   tokenBalance = null,
   onRagToggle,
   ragEnabled,
+  comparisonEnabled,
+  onComparisonToggle,
 }) => {
   const navigate = useNavigate();
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
   const [value, setValue] = useState(initialValue);
-  const [localWebSearch, setLocalWebSearch] = useState(initialWebSearch);
   const [attachments, setAttachments] = useState([]); // filenames (non-pro) or { file, preview } objects (pro)
   const [fileObjects, setFileObjects] = useState([]); // raw File objects + preview URL for pro mode
   const [previewFile, setPreviewFile] = useState(null); // { name, url, type } for preview modal
@@ -200,7 +214,6 @@ export const PromptComposer = ({
   const [activeSkill, setActiveSkill] = useState(initialSkill); // { slug, name, icon }
   const [improving, setImproving] = useState(false);
   const [slashVisible, setSlashVisible] = useState(false);
-  const [searchMode, setSearchMode] = useState(initialSearchMode);
   const [deepResearchMode, setDeepResearchMode] = useState(false);
   const [effortLevel, setEffortLevel] = useState(initialEffortLevel);
   const [drillView, setDrillView] = useState(null); // null = model list, 'effort' = effort + reasoning panel
@@ -238,25 +251,11 @@ export const PromptComposer = ({
     return () => document.removeEventListener("mousedown", handler);
   }, [mobileMenuOpen]);
 
-  const webSearch = webSearchEnabled ?? localWebSearch;
-
-  const toggleWebSearch = () => {
-    if (onWebSearchToggle) {
-      onWebSearchToggle();
-    } else {
-      setLocalWebSearch((w) => !w);
-    }
-  };
-
   const hasContent = value.trim().length > 0 || attachments.length > 0 || fileObjects.length > 0;
 
   useEffect(() => {
     setValue(initialValue);
   }, [initialValue]);
-
-  useEffect(() => {
-    setLocalWebSearch(initialWebSearch);
-  }, [initialWebSearch]);
 
   useEffect(() => {
     if (initialValue && textareaRef.current) {
@@ -320,6 +319,24 @@ export const PromptComposer = ({
     if (onFileRemove) onFileRemove(idx);
   };
 
+  const needsWebSearch = (text) => {
+    const lower = text.toLowerCase();
+    const TRIGGER_KEYWORDS = [
+      'terbaru', 'sekarang', 'hari ini', 'kemarin', 'tahun ini', 'tahun depan',
+      'latest', 'current', 'today', 'this year', 'recent', 'breaking',
+      'berita', 'news', 'harga', 'price', 'cuaca', 'weather',
+      'stock', 'saham', 'crypto', 'bitcoin',
+      'siapa', 'siapakah', 'kapan', 'dimana', 'siapa kah',
+      'who is', 'who won', 'what happened', 'election', 'pemilu', 'hasil', 'score',
+      'vs', 'versus', 'compare', 'perbandingan', 'bandingkan', 'difference',
+      'schedule', 'jadwal', 'event', 'release date', 'rilis',
+      '2025', '2026', '2027',
+    ];
+    const containsUrl = /https?:\/\/[^\s]+/.test(text);
+    if (containsUrl) return true;
+    return TRIGGER_KEYWORDS.some((kw) => lower.includes(kw));
+  };
+
   const handleSend = () => {
     if (!hasContent || isGenerating) return;
     const fileNames = fileObjects.map(f => f.name);
@@ -339,8 +356,8 @@ export const PromptComposer = ({
       return;
     }
 
-    const activeMode = SEARCH_MODES.find((m) => m.id === searchMode);
-    onSend(text, attachments, activeMode?.systemPrompt || "", searchMode, activeMode?.webSearch ?? false, activeSkill?.slug || null, effortLevel);
+    // Web search always enabled, model decides when to use
+    onSend(text, attachments, "", "web", true, activeSkill?.slug || null, effortLevel, false, comparisonEnabled);
     setValue("");
     setAttachments([]);
     // Clear file objects and revoke preview URLs
@@ -376,9 +393,6 @@ export const PromptComposer = ({
       }
       toast(`Applied /${cmd.name}`, { description: cmd.desc });
     } else if (cmd.type === "action") {
-      if (cmd.action === "enable_web_search" && !webSearch) {
-        toggleWebSearch();
-      }
       setValue("");
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -520,17 +534,6 @@ export const PromptComposer = ({
           >
             <X size={11} strokeWidth={2} />
           </button>
-        </div>
-      )}
-
-      {/* Opus teaser — home only, non-compact, logged in */}
-      {!compact && user && (
-        <div className="hidden items-center justify-between px-1 pb-2 sm:flex">
-          <p className="text-[13px] text-[#6B7280]">Claude Opus-4.8 is coming</p>
-          <Link to="/introducing-opus" data-testid="prompt-composer-learn-more"
-            className="text-[13px] font-medium text-[#111111] transition-colors hover:text-[#3B6EF6]">
-            Learn more
-          </Link>
         </div>
       )}
 
@@ -682,13 +685,20 @@ export const PromptComposer = ({
         }`}
       />
 
-      {/* Mobile token balance — visible only on small screens */}
-      {tokenBalance !== null && (
-        <div className={`ma-fade-in mb-1 flex items-center justify-end gap-1 rounded-full px-1 text-[10px] font-semibold sm:hidden ${
-          tokenBalance <= 5 ? "text-[#EF4444]" : "text-[#9CA3AF]"
-        }`}>
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
-          {tokenBalance} token
+      {value.length > 3000 && (
+        <div className={`mt-1.5 flex items-center gap-2 ${value.length > 3600 ? "text-amber-600" : "text-amber-500"}`}>
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
+            <div
+              className={`h-full rounded-full transition-all duration-200 ${
+                value.length > 3600 ? "bg-amber-500" : "bg-amber-400"
+              }`}
+              style={{ width: `${Math.min(100, (value.length / 4000) * 100)}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[11px] font-medium">{value.length}/4000</span>
+          {value.length > 3600 && (
+            <span className="shrink-0 text-[11px] font-medium">90% reached</span>
+          )}
         </div>
       )}
 
@@ -703,16 +713,16 @@ export const PromptComposer = ({
             onChange={handleFiles}
             data-testid="prompt-composer-file-input"
           />
-          {/* Tools Menu (Search Mode + AI Mode + Skills) - replaces 3 separate icons */}
+          {/* Tools Menu (AI Mode + Skills) - search now always automatic */}
           <ToolsMenu
-            searchMode={searchMode}
-            onSearchModeChange={(mode) => { setSearchMode(mode.id); }}
             reasoningEnabled={reasoningEnabled}
             deepResearchMode={deepResearchMode}
             onDeepResearchToggle={() => setDeepResearchMode((d) => !d)}
             activeSkill={activeSkill}
             onSkillSelect={(skill) => setActiveSkill(skill)}
             onSkillClear={() => setActiveSkill(null)}
+            comparisonEnabled={comparisonEnabled}
+            onComparisonToggle={onComparisonToggle}
           />
 
           {/* RAG Knowledge Base toggle */}
@@ -737,25 +747,21 @@ export const PromptComposer = ({
             </Tooltip>
           )}
 
-          {/* Supercomputer / Agentic AI — locked behind Pro */}
+          {/* Supercomputer / Agentic AI */}
           <Tooltip delayDuration={200}>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 data-testid="prompt-composer-supercomputer-button"
-                aria-label={isPro ? "Supercomputer (Agentic AI)" : "Supercomputer — Pro feature"}
-                onClick={() => navigate(isPro ? "/supercomputer" : "/pricing")}
-                className={`ma-focus grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-                  isPro
-                    ? "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
-                    : "text-[#9CA3AF] hover:bg-[#FEF3C7] hover:text-[#B45309]"
-                }`}
+                aria-label="Supercomputer (Agentic AI)"
+                onClick={() => navigate("/studio")}
+                className="ma-focus grid h-9 w-9 place-items-center rounded-xl text-[#6B7280] transition-colors duration-150 ease-out hover:bg-[#F3F4F6] hover:text-[#111111] active:scale-[0.95]"
               >
-                {isPro ? <Cpu size={18} strokeWidth={1.75} /> : <Lock size={18} strokeWidth={1.75} />}
+                <Cpu size={18} strokeWidth={1.75} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {isPro ? "Supercomputer (Agentic AI)" : "Supercomputer — Pro feature"}
+              Supercomputer (Agentic AI)
             </TooltipContent>
           </Tooltip>
 
@@ -775,46 +781,14 @@ export const PromptComposer = ({
               data-testid="model-selector-trigger"
               aria-label={`Active model: ${model.name}`}
               onClick={() => setDropdownOpen((d) => !d)}
-              className="ma-focus flex h-9 items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2 text-[13px] font-medium text-[#111111] shadow-[0_1px_2px_rgba(17,24,39,0.05)] transition-colors duration-150 ease-out hover:bg-[#F7F7F8] active:scale-[0.98] sm:px-2.5"
+              className="ma-focus flex h-8 items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 text-[12px] font-medium text-[#111111] transition-colors duration-150 hover:bg-[#F7F7F8] active:scale-[0.98] sm:px-2"
             >
-              <ModelIcon model={model} size={20} />
-              {/* Desktop: show name + credit badge + chevron */}
-              <span data-testid="model-selector-label" className="hidden truncate sm:inline">
-                {model.name}
+              <ModelIcon model={model} size={16} />
+              <span data-testid="model-selector-label" className="hidden truncate sm:inline max-w-[100px]">
+                {model.shortName || model.name}
               </span>
-              <span className="hidden items-center gap-0.5 rounded-full bg-[#F3F4F6] px-1.5 py-0.5 text-[11px] font-semibold text-[#6B7280] sm:inline-flex"
-                data-testid="model-credit-badge"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                {model.credits}
-              </span>
-              {/* Effort level badge */}
-              <span className={`hidden items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex ${
-                effortLevel === "medium" ? "bg-[#EFF6FF] text-[#3B82F6]" :
-                effortLevel === "high" ? "bg-[#FFF7ED] text-[#F97316]" :
-                effortLevel === "max" ? "bg-[#FEF2F2] text-[#EF4444]" :
-                "bg-[#F3F4F6] text-[#6B7280]"
-              }`}>
-                <Gauge size={9} strokeWidth={2} />
-                {EFFORT_LEVELS.find((e) => e.id === effortLevel)?.badge || "Low"}
-              </span>
-              {/* Token balance badge — inside model selector */}
-              <ChevronDown size={14} strokeWidth={2} className={`hidden text-[#9CA3AF] transition-transform duration-150 sm:block ${dropdownOpen ? "rotate-180" : ""}`} />
-              {/* Mobile: just chevron down */}
-              <ChevronDown size={13} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 sm:hidden ${dropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown size={12} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
             </button>
-
-            {/* Token balance — standalone badge next to model selector */}
-            {tokenBalance !== null && (
-              <span className={`ma-fade-in hidden items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold sm:inline-flex ${
-                tokenBalance <= 5
-                  ? "border-[#FECACA] bg-[#FEF2F2] text-[#EF4444]"
-                  : "border-[#E5E7EB] bg-[#F7F7F8] text-[#6B7280]"
-              }`}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
-                {tokenBalance}
-              </span>
-            )}
 
               {dropdownOpen && (
               <div
@@ -826,7 +800,7 @@ export const PromptComposer = ({
                   <div className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 8px)" }}>
                     {/* Free models */}
                     <p className="px-2.5 pt-1.5 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#9CA3AF]">Free</p>
-                    {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked && !m.maintenance).map((m) => {
+                    {MODELS.filter(m => !m.requiresPro && !m.isExpensive && !m.locked).map((m) => {
                       const isSelected = !autoMode && model.id === m.id;
                       return (
                         <button
@@ -852,17 +826,6 @@ export const PromptComposer = ({
                         </button>
                       );
                     })}
-                    {/* Maintenance models */}
-                    {MODELS.filter(m => m.maintenance).map((m) => (
-                      <div key={m.id}
-                        className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 opacity-50">
-                        <ModelIcon model={m} size={22} />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#111111]">{m.name}</span>
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[9px] font-semibold text-[#B45309]">
-                          Maintenance
-                        </span>
-                      </div>
-                    ))}
                     {/* Pro divider — collapsible */}
                     <button type="button" onClick={() => setProSectionOpen(o => !o)}
                       className="ma-focus mx-1 my-1.5 flex w-[calc(100%-8px)] items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-[#F3F4F6] transition-colors">

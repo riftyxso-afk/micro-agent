@@ -38,6 +38,20 @@ let webpackConfig = {
     },
     configure: (webpackConfig) => {
 
+      // Add .tsx and .ts to resolve extensions
+      if (!webpackConfig.resolve) {
+        webpackConfig.resolve = {};
+      }
+      if (!webpackConfig.resolve.extensions) {
+        webpackConfig.resolve.extensions = [];
+      }
+      const tsExts = ['.tsx', '.ts'];
+      tsExts.forEach((ext) => {
+        if (!webpackConfig.resolve.extensions.includes(ext)) {
+          webpackConfig.resolve.extensions.push(ext);
+        }
+      });
+
       // Add ignored patterns to reduce watched directories
         webpackConfig.watchOptions = {
           ...webpackConfig.watchOptions,

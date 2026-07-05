@@ -22,15 +22,13 @@ const AutoModelMark = (props) => (
 const MODEL_ICON_SRC = {
   "claude-sonnet-4-5-1m": "/svg/claude-ai-icon.svg",
   "claude-opus-4-8": "/svg/claude-ai-icon.svg",
-  "claude-opus-4.6": "/svg/claude-ai-icon.svg",
-  "claude-sonnet-4-6": "/svg/claude-ai-icon.svg",
   "deepseek-v4-flash": "/svg/deepseek.svg",
-  "kimi-k2.6": "/svg/kimi-icon.svg",
   "glm-5": "/svg/zai.svg",
+  "glm-5.2-free": "/svg/zai.svg",
   "flux-2-klein-4b": "/svg/flux.svg",
-  "minimax-m3": "/svg/minimax-color.svg",
-  "minimax-m2-5": "/svg/minimax-color.svg",
-  "gemini-2-5-flash": "/svg/gemini.svg",
+  "open-agentic": "/svg/gemini.svg",
+  "claude-sonnet-5": "/svg/claude-ai-icon.svg",
+  "claude-fable-5": "/svg/claude-ai-icon.svg",
 };
 
 export const ModelIcon = ({ model, size = 24 }) => {

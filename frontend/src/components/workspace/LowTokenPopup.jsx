@@ -6,11 +6,13 @@ import { Zap, X, ArrowRight, AlertTriangle } from "lucide-react";
 export const LowTokenPopup = ({ tokenBalance, onDismiss, isGuest }) => {
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(
+    () => sessionStorage.getItem("low_token_dismissed") === "1"
+  );
 
   useEffect(() => {
     if (dismissed) return;
-    const threshold = isGuest ? 2 : 5;
+    const threshold = isGuest ? 2 : 10;
     if (tokenBalance != null && tokenBalance <= threshold && tokenBalance >= 0) {
       setShow(true);
     }

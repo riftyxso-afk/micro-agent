@@ -542,11 +542,49 @@ body {
   color: #111111;
 }
 
+/* AI Loading Stream animations */
+.ma-stage-enter {
+  animation: ma-stage-slide-in 0.35s ease-out both;
+}
+
+@keyframes ma-stage-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ma-caret-ai {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: currentColor;
+  animation: ma-blink 0.9s step-end infinite;
+}
+
+@keyframes ma-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+@keyframes ma-ping {
+  0% { transform: scale(1); opacity: 0.3; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .ma-fade-in,
-  .ma-chip {
+  .ma-chip,
+  .ma-stage-enter {
     animation: none;
     transition: none;
+  }
+  .ma-caret-ai {
+    animation: none;
   }
 }

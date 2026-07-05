@@ -1,5 +1,22 @@
-import { Fragment, useState } from "react";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Fragment, useState, useEffect, useRef } from "react";
+import { ChevronDown, ChevronUp, ExternalLink, Copy, Check } from "lucide-react";
+import Prism from 'prismjs';
+import 'prismjs/themes/prism.css';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-rust';
+import './prism-override.css';
 
 /* ------------------------------------------------------------------ */
 /*  Inline helpers                                                     */
@@ -172,6 +189,49 @@ const MathBlock = ({ code }) => (
     {code}
   </div>
 );
+
+const CodeBlock = ({ language, content }) => {
+  const [copied, setCopied] = useState(false);
+  const codeRef = useRef(null);
+
+  useEffect(() => {
+    if (codeRef.current && language && Prism.languages[language]) {
+      Prism.highlightElement(codeRef.current);
+    }
+  }, [content, language]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border-2 border-[#D1D5DB] bg-transparent">
+      {language && (
+        <div className="flex items-center justify-between border-b border-[#E5E7EB] bg-[#F9FAFB] px-4 py-2">
+          <span className="text-xs font-medium text-[#6B7280]">{language}</span>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111] transition-colors"
+            title={copied ? "Copied!" : "Copy code"}
+          >
+            {copied ? (
+              <><Check size={14} strokeWidth={2} /> Copied!</>
+            ) : (
+              <><Copy size={14} strokeWidth={1.5} /> Copy</>
+            )}
+          </button>
+        </div>
+      )}
+      <pre className="overflow-x-auto p-4 bg-[#FAFAFA] dark:bg-[#1E1E1E]">
+        <code ref={codeRef} className={`language-${language || 'text'} text-sm leading-relaxed block`}>
+          {content}
+        </code>
+      </pre>
+    </div>
+  );
+};
 
 /* ------------------------------------------------------------------ */
 /*  MarkdownMessage main                                               */
@@ -417,12 +477,7 @@ export const MarkdownMessage = ({ text = "" }) => {
   const renderBlock = (block, index) => {
     switch (block.type) {
           case "code":
-            return (
-              <div key={index} className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-[#0F172A]">
-                {block.language && <div className="border-b border-white/10 px-4 py-2 text-xs font-medium text-white/50">{block.language}</div>}
-                <pre className="overflow-x-auto p-4 text-sm leading-relaxed text-[#E5E7EB]"><code>{block.content}</code></pre>
-              </div>
-            );
+            return <CodeBlock key={index} language={block.language} content={block.content} />;
 
           case "math":
             return <MathBlock key={index} code={block.content} />;

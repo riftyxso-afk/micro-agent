@@ -8,10 +8,26 @@
  *   event: done      { status }
  *   event: error     { message }
  */
-// Support both local dev (relative proxy) and production (absolute URL from REACT_APP_API_URL)
-// Local dev: leave REACT_APP_API_URL empty, package.json proxy handles it
-// Production: set REACT_APP_API_URL to your deployed backend URL (e.g., https://api.yoursite.com)
 export const API_BASE_URL = process.env.REACT_APP_API_URL || "";
+
+const WEB_SEARCH_KEYWORDS = [
+  'terbaru', 'sekarang', 'hari ini', 'kemarin', 'tahun ini', 'tahun depan',
+  'latest', 'current', 'today', 'this year', 'recent', 'breaking',
+  'berita', 'news', 'harga', 'price', 'cuaca', 'weather',
+  'stock', 'saham', 'crypto', 'bitcoin',
+  'siapa', 'siapakah', 'kapan', 'dimana',
+  'who is', 'who won', 'what happened', 'election', 'pemilu', 'hasil', 'score',
+  'schedule', 'jadwal', 'event', 'release date', 'rilis',
+  '2025', '2026', '2027',
+];
+
+export function needsWebSearch(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (/https?:\/\/[^\s]+/.test(text)) return true;
+  return WEB_SEARCH_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 const DEBUG_STREAM = true;
 
 const streamLog = (...args) => {
@@ -44,6 +60,21 @@ const IMAGE_KEYWORDS = [
 export function isImageRequest(text) {
   const lower = (text || "").toLowerCase();
   return IMAGE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+const COMPARISON_KEYWORDS = [
+  "bandingkan", "compare", "vs", "versus", "perbandingan", "comparison",
+  "lebih bagus", "lebih baik", "lebih unggul", "mana yang lebih",
+  "beda", "difference", "similarities", "persamaan", "perbedaan",
+];
+
+export function isComparisonRequest(text) {
+  const lower = (text || "").toLowerCase();
+  const hasKeyword = COMPARISON_KEYWORDS.some((kw) => lower.includes(kw));
+  const hasVsPattern = /\b\w+\s+(?:vs|versus)\s+\w+/.test(lower);
+  const hasBandingkanPattern = /(?:bandingkan|compare)\s+.+\s+(?:dengan|with|and|dan)\s+/.test(lower);
+  
+  return hasKeyword && (hasVsPattern || hasBandingkanPattern || lower.includes("bandingkan") || lower.includes("compare"));
 }
 
 /**
@@ -170,11 +201,12 @@ export function streamChat({
   autoMode,
   room,
   attachments,
-  webSearch = false,
+  webSearch = true,
   reasoning = true,
   searchModePrompt = "",
   skillSlug = null,
   effortLevel = "low",
+  comparison = false,
   userId = null,
   authToken = null,
   signal,
@@ -185,6 +217,7 @@ export function streamChat({
   onToken,
   onDone,
   onError,
+  onComparisonData,
 }) {
   streamLog("request:start", {
     url: `${API_BASE_URL}/api/chat/stream`,
@@ -214,6 +247,7 @@ export function streamChat({
       search_mode_prompt: searchModePrompt || "",
       skill_slug: skillSlug || null,
       effort_level: effortLevel,
+      comparison: comparison,
       user_id: userId || null,
     }),
     signal,
@@ -297,6 +331,10 @@ export function streamChat({
             case "error":
               streamLog("event:error", parsed.message);
               fail(new Error(parsed.message || "Unknown streaming error"));
+              break;
+            case "comparison_data":
+              streamLog("event:comparison_data", parsed);
+              onComparisonData?.(parsed);
               break;
             default:
               streamLog("event:unknown", currentEvent, parsed);

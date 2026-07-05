@@ -237,12 +237,13 @@ Rules:
 
 
 def execute_python_code(code: str, output_filename: str) -> dict:
-    tmp_dir = os.path.join("/tmp", f"docgen_{uuid.uuid4().hex[:12]}")
-    os.makedirs(tmp_dir, exist_ok=True)
-    script_path = os.path.join(tmp_dir, f"gen_{uuid.uuid4().hex[:8]}.py")
-    output_path = os.path.join(tmp_dir, output_filename)
+    docs_dir = "/tmp/microagent_docs"
+    os.makedirs(docs_dir, exist_ok=True)
+    gen_id = uuid.uuid4().hex[:12]
+    script_path = os.path.join(docs_dir, f"gen_{gen_id}.py")
+    output_path = os.path.join(docs_dir, f"{gen_id}_{output_filename}")
 
-    patched = f'import os\nos.chdir(r"{tmp_dir}")\n\n{code}'
+    patched = f'import os\nos.chdir(r"{docs_dir}")\n\n{code}'
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(patched)
 
@@ -252,14 +253,24 @@ def execute_python_code(code: str, output_filename: str) -> dict:
             capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if os.path.exists(script_path):
+                os.remove(script_path)
             raise RuntimeError(f"Script error:\n{result.stderr[:1000]}")
         if not os.path.exists(output_path):
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise FileNotFoundError(f"File '{output_filename}' tidak ditemukan setelah eksekusi")
-        return {"success": True, "file_path": output_path, "tmp_dir": tmp_dir}
+            # Try to find the file
+            found = [f for f in os.listdir(docs_dir) if not f.endswith(".py") and f.startswith(gen_id)]
+            if found:
+                output_path = os.path.join(docs_dir, found[0])
+            else:
+                if os.path.exists(script_path):
+                    os.remove(script_path)
+                raise FileNotFoundError(f"File '{output_filename}' tidak ditemukan setelah eksekusi")
+        if os.path.exists(script_path):
+            os.remove(script_path)
+        return {"success": True, "file_path": output_path}
     except subprocess.TimeoutExpired:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if os.path.exists(script_path):
+            os.remove(script_path)
         raise RuntimeError("Eksekusi timeout (>30 detik)")
 
 
@@ -319,8 +330,8 @@ async def generate_document_with_ai(prompt: str, user_id: str, model: str = "dee
             "file_path": result["file_path"],
         }).execute()
 
-    # Schedule cleanup after 10 minutes
-    asyncio.create_task(_cleanup_file(file_id, result["tmp_dir"], delay=600))
+    # Schedule cleanup after 24 hours
+    asyncio.create_task(_cleanup_file(file_id, result["file_path"], delay=86400))
 
     return {
         "success": True,
@@ -331,9 +342,13 @@ async def generate_document_with_ai(prompt: str, user_id: str, model: str = "dee
     }
 
 
-async def _cleanup_file(file_id: str, tmp_dir: str, delay: int):
+async def _cleanup_file(file_id: str, file_path: str, delay: int):
     await asyncio.sleep(delay)
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
     supa = _get_supa()
     if supa:
         supa.table("generated_files").delete().eq("id", file_id).execute()

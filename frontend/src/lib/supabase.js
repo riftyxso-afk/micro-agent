@@ -138,6 +138,101 @@ export async function deleteFileFromStorage(path) {
   await supabase.storage.from("chat-files").remove([path]);
 }
 
+// ── Builder projects ────────────────────────────────────────────────────────────
+
+export async function fetchBuilderProjects({ userId, limit = 50 } = {}) {
+  if (!supabase) return [];
+  let q = supabase
+    .from("projects")
+    .select("id, name, updated_at, last_prompt, is_favorite")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (userId) q = q.eq("user_id", userId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchBuilderFavorites({ userId } = {}) {
+  if (!supabase) return [];
+  let q = supabase
+    .from("projects")
+    .select("id, name, updated_at, last_prompt, is_favorite")
+    .eq("is_favorite", true)
+    .order("updated_at", { ascending: false });
+  if (userId) q = q.eq("user_id", userId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchBuilderProject(id) {
+  if (!supabase || !id) return null;
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, last_saved, file_tree, last_prompt, is_favorite, user_id")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createBuilderProject({ name = "Untitled Project", last_prompt = "" } = {}) {
+  if (!supabase) return null;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  const row = { name, last_prompt, file_tree: {}, is_favorite: false, user_id: user.id };
+  const { data, error } = await supabase
+    .from("projects")
+    .insert(row)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBuilderProject(id, patch) {
+  if (!supabase || !id) return;
+  await supabase
+    .from("projects")
+    .update({ ...patch, last_saved: new Date().toISOString() })
+    .eq("id", id);
+}
+
+export async function toggleBuilderFavorite(id, isFavorite) {
+  if (!supabase || !id) return;
+  await supabase.from("projects").update({ is_favorite: isFavorite }).eq("id", id);
+}
+
+export async function deleteBuilderProject(id) {
+  if (!supabase || !id) return;
+  await supabase.from("projects").delete().eq("id", id);
+}
+
+// ── Builder project messages ─────────────────────────────────────────────────
+
+export async function fetchProjectMessages(projectId) {
+  if (!supabase || !projectId) return [];
+  const { data, error } = await supabase
+    .from("project_messages")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function saveProjectMessage(projectId, { role, text, metadata = {} }) {
+  if (!supabase || !projectId) return null;
+  const { data, error } = await supabase
+    .from("project_messages")
+    .insert({ project_id: projectId, role, text, metadata })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // ── Skill installs ──────────────────────────────────────────────────────────────
 
 export async function fetchUserSkills() {

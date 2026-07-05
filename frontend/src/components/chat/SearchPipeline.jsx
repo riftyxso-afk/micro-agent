@@ -1,4 +1,13 @@
-import { Globe, Sparkles, GraduationCap, Users, CheckCircle2, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import {
+  Globe,
+  Sparkles,
+  GraduationCap,
+  Users,
+  CheckCircle2,
+  ExternalLink,
+  ChevronDown,
+} from "lucide-react";
 
 // Grid loader component — 3x3 squares that light up in sequence
 const GridLoader = ({ color = "currentColor", size = 14 }) => (
@@ -122,12 +131,17 @@ export const SearchPipeline = ({
         return { doneUpTo: active, activeIndex: active };
       })();
 
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <div className="ma-pipeline-enter mb-4 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white">
-      {/* Header */}
-      <div
-        className="flex items-center gap-2 px-4 py-2.5"
-        style={{ background: colors.bg, borderBottom: `1px solid ${colors.accent}22` }}
+    <div className="mb-4 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white">
+      {/* Collapsible Header */}
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 transition-colors"
+        style={{ background: colors.bg, borderBottom: expanded ? `1px solid ${colors.accent}22` : "none" }}
+        aria-expanded={expanded}
       >
         <ModeIcon size={13} strokeWidth={2} style={{ color: colors.accent }} />
         <span className="text-[12px] font-semibold" style={{ color: colors.accent }}>
@@ -144,67 +158,81 @@ export const SearchPipeline = ({
             {phase === "searching" ? "Mencari..." : phase === "reading" ? "Membaca..." : "Mensintesis..."}
           </span>
         )}
-      </div>
+        <ChevronDown
+          size={12}
+          strokeWidth={2}
+          className={`shrink-0 text-[#9CA3AF] transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
 
-      {/* Steps */}
-      <div className="px-4 py-3 space-y-2.5">
-          {steps.map((step, i, arr) => {
-          const stepDone = i < doneUpTo;
-          const stepActive = i === activeIndex;
+      {/* Expandable Content */}
+      <div
+        className={`transition-[max-height,opacity] duration-200 ease-out overflow-hidden ${
+          expanded ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+        }`}
+      >
+        <div className="px-4 pb-3 space-y-2.5">
+          {/* Steps */}
+          <div className="pt-2 space-y-2">
+            {steps.map((step, i) => {
+              const stepDone = i < doneUpTo;
+              const stepActive = i === activeIndex;
 
-          return (
-            <div key={step.id} className="ma-step-enter flex items-center gap-2.5" style={{animationDelay: `${i * 0.06}s`}}>
-              <span className="shrink-0">
-                {stepDone ? (
-                  <CheckCircle2 size={14} strokeWidth={2} style={{ color: colors.accent }} />
-                ) : stepActive ? (
-                  <GridLoader color={colors.accent} size={14} />
-                ) : (
-                  <span className="grid h-[14px] w-[14px] place-items-center rounded-full border border-[#E5E7EB]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
+              return (
+                <div key={step.id} className="ma-step-enter flex items-center gap-2.5" style={{ animationDelay: `${i * 0.06}s` }}>
+                  <span className="shrink-0">
+                    {stepDone ? (
+                      <CheckCircle2 size={14} strokeWidth={2} style={{ color: colors.accent }} />
+                    ) : stepActive ? (
+                      <GridLoader color={colors.accent} size={14} />
+                    ) : (
+                      <span className="grid h-[14px] w-[14px] place-items-center rounded-full border border-[#E5E7EB]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-              <span
-                className="text-[12px]"
-                style={{
-                  color: stepDone ? "#6B7280" : stepActive ? colors.accent : "#9CA3AF",
-                  fontWeight: stepActive ? 500 : 400,
-                }}
-              >
-                {step.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Query label - all modes with web search */}
-      {webQuery && (
-        <div className="border-t border-[#F3F4F6] px-4 py-2">
-          <p className="text-[11px] text-[#9CA3AF]">
-            Query: <span className="font-medium text-[#6B7280]">“{webQuery}”</span>
-          </p>
-        </div>
-      )}
-
-      {/* Sources - show for all modes that triggered web search */}
-      {webResults.length > 0 && (
-        <div className="border-t border-[#F3F4F6] px-4 pb-3 pt-2">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
-            {mode === 'academic'
-              ? webResults.length + ' paper & jurnal ditemukan'
-              : mode === 'social'
-              ? webResults.length + ' sumber diskusi ditemukan'
-              : webResults.length + ' sumber ditemukan'}
-          </p>
-          <div className="space-y-0.5">
-            {webResults.map((r, i) => (
-              <SourceItem key={`${r.url}-${i}`} url={r.url} title={r.title} />
-            ))}
+                  <span
+                    className="text-[12px]"
+                    style={{
+                      color: stepDone ? "#6B7280" : stepActive ? colors.accent : "#9CA3AF",
+                      fontWeight: stepActive ? 500 : 400,
+                    }}
+                  >
+                    {step.label}
+                  </span>
+                </div>
+              );
+            })}
           </div>
+
+          {/* Query label - all modes with web search */}
+          {webQuery && (
+            <div className="border-t border-[#F3F4F6] py-2">
+              <p className="text-[11px] text-[#9CA3AF]">
+                Query: <span className="font-medium text-[#6B7280]">“{webQuery}”</span>
+              </p>
+            </div>
+          )}
+
+          {/* Sources - show for all modes that triggered web search */}
+          {webResults.length > 0 && (
+            <div className="border-t border-[#F3F4F6] pt-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                {mode === 'academic'
+                  ? webResults.length + ' paper & jurnal ditemukan'
+                  : mode === 'social'
+                    ? webResults.length + ' sumber diskusi ditemukan'
+                    : webResults.length + ' sumber ditemukan'}
+              </p>
+              <div className="space-y-0.5">
+                {webResults.map((r, i) => (
+                  <SourceItem key={`${r.url}-${i}`} url={r.url} title={r.title} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
