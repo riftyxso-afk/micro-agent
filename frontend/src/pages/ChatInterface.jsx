@@ -1045,7 +1045,7 @@ export default function ChatInterface() {
       >
         {/* Chat title header */}
         {messages.length > 0 && (
-          <div className="relative flex items-center gap-1.5 px-4 py-2.5 border-b border-[#F0F1F3]">
+          <div className="relative flex items-center gap-1.5 pl-12 md:pl-4 pr-4 py-2.5 border-b border-[#F0F1F3]">
             {renaming ? (
               <form onSubmit={(e) => {
                 e.preventDefault();
