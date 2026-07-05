@@ -539,7 +539,7 @@ const MemorySection = ({ reduceMotion }) => {
 
   useEffect(() => {
     fetchMemories();
-  }, [session]);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = async (id) => {
     if (!session?.access_token) return;

@@ -854,7 +854,7 @@ export default function ChatInterface() {
         }
       })
       .catch(() => {});
-  }, [messages, user, sessionId, model, room]);
+  }, [messages, user, sessionId, model, room]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save completed messages to Supabase
   useEffect(() => {
