@@ -540,12 +540,15 @@ async def _save_artifact(file_name: str, file_type: str, content: str, user_id: 
     if not supa:
         return {"file_name": file_name, "file_type": file_type, "url": None}
     try:
-        path = f"artifacts/{user_id}/{uuid.uuid4().hex[:8]}_{file_name}"
-        supa.storage.from("chat-files").upload(path, content.encode("utf-8"), {"content-type": f"text/{file_type}"})
-        public_url = f"{SUPABASE_URL}/storage/v1/object/public/chat-files/{path}"
+        import uuid as _uuid
+        path = "artifacts/%s/%s_%s" % (user_id, _uuid.uuid4().hex[:8], file_name)
+        mime_type = "text/%s" % file_type
+        bucket = supa.storage.from_("chat-files")
+        bucket.upload(path, content.encode("utf-8"), {"content-type": mime_type})
+        public_url = "%s/storage/v1/object/public/chat-files/%s" % (SUPABASE_URL, path)
         return {"file_name": file_name, "file_type": file_type, "url": public_url, "path": path}
     except Exception as e:
-        logger.warning(f"Artifact storage failed: {e}")
+        logger.warning("Artifact storage failed: %s", e)
         return {"file_name": file_name, "file_type": file_type, "url": None}
 
 
@@ -554,6 +557,7 @@ def _handle_write_file(tool_data: dict):
     try:
         tool_input = json.loads(tool_data.get("input_json", "{}"))
     except json.JSONDecodeError:
+        logger.warning("Failed to parse tool JSON: %s", tool_data.get("input_json", "")[:200])
         yield sse("error", {"message": "Failed to parse tool output"})
         return
 
@@ -562,6 +566,8 @@ def _handle_write_file(tool_data: dict):
     content = tool_input.get("content", "")
     description = tool_input.get("description", "")
 
+    logger.info("write_file: %s (%d bytes)", file_name, len(content))
+
     if not content:
         yield sse("error", {"message": "Empty file content"})
         return
@@ -569,16 +575,10 @@ def _handle_write_file(tool_data: dict):
     # Store in memory
     _artifact_store[file_name] = content
 
-    # Save to storage
-    import asyncio
-    loop = asyncio.new_event_loop()
-    artifact = loop.run_until_complete(_save_artifact(file_name, file_type, content))
-    loop.close()
-
     yield sse("artifact", {
-        "file_name": artifact["file_name"],
-        "file_type": artifact["file_type"],
-        "url": artifact.get("url"),
+        "file_name": file_name,
+        "file_type": file_type,
+        "url": None,
         "description": description,
         "content": content[:50000],
     })
@@ -3103,7 +3103,9 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
         "messages": normalize_messages(payload, web_context=web_context),
         **model_config,
         "tools": ALL_TOOLS,
+        "tool_choice": {"type": "auto"},
     }
+    logger.info("Tool calling enabled: %d tools", len(ALL_TOOLS))
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -3162,16 +3164,20 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 choice = choices[0] or {}
 
                 # Handle tool_calls in OpenAI-compatible format (SumoPod)
-                tool_calls = choice.get("tool_calls") or []
+                delta = choice.get("delta") or {}
+                tool_calls = delta.get("tool_calls") or []
+                if tool_calls:
+                    logger.info("Tool calls received: %d", len(tool_calls))
                 for tc in tool_calls:
                     tc_id = tc.get("id", "")
                     func = tc.get("function", {})
-                    if tc_id and func.get("name") == "write_file":
-                        # Accumulate input JSON
+                    name = func.get("name", "")
+                    args = func.get("arguments", "")
+                    if tc_id and name:
                         if tc_id not in _tool_calls:
-                            _tool_calls[tc_id] = {"name": "write_file", "input_json": ""}
-                            yield sse("status", {"phase": "tool_use", "status": "started", "tool": "write_file"})
-                        _tool_calls[tc_id]["input_json"] += func.get("arguments", "")
+                            _tool_calls[tc_id] = {"name": name, "input_json": ""}
+                            yield sse("status", {"phase": "tool_use", "status": "started", "tool": name})
+                        _tool_calls[tc_id]["input_json"] += args
 
                 reasoning = extract_reasoning_content(choice)
                 if reasoning and payload.reasoning:

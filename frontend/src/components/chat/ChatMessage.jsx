@@ -184,7 +184,7 @@ export const AssistantMessage = ({ message, onRetry, onRefine, onAbort }) => {
         data-testid="assistant-message"
         data-state="error"
       >
-        <div className="w-full max-w-full rounded-[24px] border border-[#FECACA] bg-[#FEF2F2] p-5 sm:max-w-[92%]">
+        <div className="w-full max-w-full p-5 sm:max-w-[92%]">
           <AssistantHeader message={message} />
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-2 text-sm text-[#991B1B]">
@@ -217,11 +217,7 @@ export const AssistantMessage = ({ message, onRetry, onRefine, onAbort }) => {
       data-state={message.state}
     >
       <div
-        className={`w-full max-w-full rounded-[24px] p-5 sm:p-6 ${
-          message.imageUrl
-            ? ""
-            : "bg-white shadow-[0_1px_3px_rgba(17,24,39,0.06)]"
-        }`}
+        className="w-full max-w-full p-5 sm:p-6"
       >
         <AssistantHeader message={message} />
 
