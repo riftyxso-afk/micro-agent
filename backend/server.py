@@ -2353,8 +2353,44 @@ def trigger_memory_extraction(messages: List[dict], user_id: str, session_id: st
     asyncio.create_task(_extract_and_save())
 
 
-@api_router.get("/user/memories")
-async def list_user_memories(request: Request):
+# ── API Key Rotation ──────────────────────────────────────────────────────────
+
+@api_router.post("/admin/rotate-api-keys")
+async def rotate_api_keys(request: Request):
+    """Rotate API keys — admin only, triggered manually or via cron."""
+    # In production, this should be protected by admin auth
+    # For now, require a master password from env
+    body = await request.json()
+    master_key = body.get("master_key", "")
+    expected = env_str("ADMIN_MASTER_KEY", "")
+    if not expected or master_key != expected:
+        return JSONResponse({"error": "Unauthorized"}, status_code=403)
+
+    # Generate new keys
+    import secrets
+    new_pakasir_key = secrets.token_hex(32)
+    new_webhook_secret = secrets.token_hex(32)
+
+    # Log rotation (in production, update env vars via Railway/Vercel dashboard)
+    logger.info(f"API key rotation requested. New Pakasir key: {new_pakasir_key[:8]}..., New webhook secret: {new_webhook_secret[:8]}...")
+    return JSONResponse({
+        "message": "New keys generated. Update PAKASIR_API_KEY and PAKASIR_WEBHOOK_SECRET in Railway dashboard.",
+        "pakasir_key": new_pakasir_key,
+        "webhook_secret": new_webhook_secret,
+    })
+
+
+@api_router.get("/admin/security-status")
+async def security_status(request: Request):
+    """Check security configuration status."""
+    return JSONResponse({
+        "cors_origins": cors_origins(),
+        "rate_limiting": True,
+        "webhook_signature": bool(PAKASIR_WEBHOOK_SECRET),
+        "cors_wildcard": "*" in cors_origins(),
+        "body_size_limit": f"{MAX_BODY_SIZE // (1024*1024)}MB",
+        "guest_limit": GUEST_LIMIT,
+    })
     """List all active memories for authenticated user."""
     if not supa: return _no_supa()
     uid = _get_user_id(request)
@@ -5384,6 +5420,38 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(BodySizeLimitMiddleware)
+
+
+# ── Request Logging Middleware ────────────────────────────────────────────────
+import logging
+request_logger = logging.getLogger("requests")
+_abuse_counts: dict[str, list[float]] = {}
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        start = time.time()
+        ip = request.client.host if request.client else "unknown"
+        path = request.url.path
+        method = request.method
+
+        # Track failed auth attempts for abuse detection
+        response = await call_next(request)
+        duration = time.time() - start
+
+        # Log slow requests (>5s)
+        if duration > 5:
+            logger.warning(f"Slow request: {method} {path} from {ip} took {duration:.1f}s")
+
+        # Log 401/403 for abuse detection
+        if response.status_code in (401, 403):
+            _abuse_counts.setdefault(ip, []).append(time.time())
+            _abuse_counts[ip] = [t for t in _abuse_counts[ip] if time.time() - t < 300]
+            if len(_abuse_counts[ip]) > 20:
+                logger.warning(f"Possible abuse from {ip}: {len(_abuse_counts[ip])} failed auth in 5min")
+
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 if __name__ == "__main__":
