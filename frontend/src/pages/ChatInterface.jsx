@@ -124,6 +124,7 @@ export default function ChatInterface() {
           searchMode: m.search_mode || "off",
           skillSlug: m.skill_slug || null,
           imageUrl: m.image_url || null,
+          uploadedFiles: m.metadata?.uploadedFiles || [],
         }));
         setMessages(restored);
         savedMsgCountRef.current = restored.length;

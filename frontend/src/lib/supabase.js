@@ -113,7 +113,7 @@ export async function saveMessages(sessionId, messages) {
     skill_slug: m.skillSlug || null,
     effort_level: m.effortLevel || "",
     image_url: m.imageUrl || null,
-    metadata: { state: m.state, thinkingSteps: m.thinkingSteps },
+    metadata: { state: m.state, thinkingSteps: m.thinkingSteps, uploadedFiles: m.uploadedFiles || [] },
   }));
   await supabase.from("messages").insert(rows);
   await supabase.from("sessions").update({ updated_at: new Date().toISOString() }).eq("id", sessionId);
