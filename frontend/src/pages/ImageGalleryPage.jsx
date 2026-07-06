@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -10,6 +9,7 @@ import { API_BASE_URL } from "@/lib/chatApi";
 export default function ImageGalleryPage() {
   const navigate = useNavigate();
   const { user, session } = useAuth();
+  const { openAuth } = useAuthModal();
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);

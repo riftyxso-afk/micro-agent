@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
@@ -63,6 +62,7 @@ const PAKASIR_SLUG = process.env.REACT_APP_PAKASIR_SLUG || "";
 export default function TopUpPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { openAuth } = useAuthModal();
   const reduceMotion = useReducedMotion();
   const [collapsed, setCollapsed] = useState(false);
   const [activeDialog, setActiveDialog] = useState(null);

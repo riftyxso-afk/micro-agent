@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState } from "react";
 import { Settings, LogOut, UserRound, LogIn } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -18,8 +17,7 @@ import { isSupabaseEnabled } from "@/lib/supabase";
 export const UserMenu = ({ size = 40 }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-
-
+  const { openAuth } = useAuthModal();
   const displayName = user?.email?.split("@")[0] || "Guest";
   const displayEmail = user?.email || "";
   const initial = displayName[0]?.toUpperCase() || "G";

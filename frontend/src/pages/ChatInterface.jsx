@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -94,6 +93,7 @@ export default function ChatInterface() {
 
   // Supabase session
   const { user, session, incrementGuestCount, checkGuestAllowed, isGuestLimitReached, guestRemaining, GUEST_LIMIT } = useAuth();
+  const { openAuth } = useAuthModal();
 
   const { plan, isPro, isUltra, features, subscription, decrementCredits } = useSubscription();
   const [sessionId, setSessionId] = useState(urlSessionId || null);

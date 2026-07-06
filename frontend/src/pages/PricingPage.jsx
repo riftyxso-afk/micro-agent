@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCurrency } from "@/hooks/useCurrency";

@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
@@ -39,6 +38,7 @@ export default function HomeWorkspace() {
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
   const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount, guestRemaining, isOnboarded } = useAuth();
+  const { openAuth } = useAuthModal();
   const { plan, isPro, isUltra } = useSubscription();
 
   // Redirect logged-in users who haven't done onboarding

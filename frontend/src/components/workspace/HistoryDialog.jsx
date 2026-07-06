@@ -1,5 +1,4 @@
 import { useAuthModal } from "@/App";
-const { openAuth } = useAuthModal();
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Dialog,
@@ -29,6 +28,7 @@ import { API_BASE_URL } from "@/lib/chatApi";
 export const HistoryDialog = ({ open, onOpenChange }) => {
   const navigate = useNavigate();
   const { user, session } = useAuth();
+  const { openAuth } = useAuthModal();
   const [query, setQuery] = useState("");
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
