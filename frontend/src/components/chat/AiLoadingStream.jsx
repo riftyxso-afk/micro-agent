@@ -109,9 +109,9 @@ export const AiLoadingStream = ({
   };
 
   return (
-    <div className="mb-3 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+    <div className="mb-2 py-1">
       {/* ── Status bars ────────────────────────────────────────── */}
-      <div className="px-3 py-2.5 space-y-1">
+      <div className="space-y-1">
         {activePhases.map((p, i) => (
           <div key={p.id} className="flex items-center gap-2">
             <span className="ma-icon-shimmer shrink-0 text-[#6B7280]">
@@ -159,8 +159,8 @@ export const AiLoadingStream = ({
 
       {/* ── Expandable detail panel ────────────────────────────── */}
       <div
-        className={`transition-[max-height,opacity] duration-200 ease-out overflow-hidden border-t border-[#F3F4F6] ${
-          expanded ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
+        className={`transition-[max-height,opacity] duration-200 ease-out overflow-hidden ${
+          expanded ? "max-h-[800px] opacity-100 mt-2" : "max-h-0 opacity-0"
         }`}
       >
         <div className="px-3 py-2.5 space-y-2 text-[12px] text-[#6B7280]">

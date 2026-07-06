@@ -32,7 +32,7 @@ export function ComparisonPanel({ comparisonId, responseA, responseB, session, o
       </p>
       <div className="grid grid-cols-1 gap-2 sm:gap-3 sm:grid-cols-2">
         {[{ key: "a", resp: responseA }, { key: "b", resp: responseB }].map(({ key, resp }) => (
-          <div key={key} className="flex flex-col rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
+          <div key={key} className="flex flex-col overflow-hidden border border-[#E5E7EB] rounded-xl">
             <div className="px-3 sm:px-4 py-2 border-b border-[#F0F1F3] bg-[#F9FAFB]">
               <span className="text-[11px] sm:text-xs font-semibold text-[#6B7280]">Response {key.toUpperCase()}</span>
             </div>
