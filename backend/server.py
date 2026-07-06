@@ -74,9 +74,15 @@ def env_float(name: str, default: float) -> float:
 
 
 def cors_origins() -> List[str]:
-    origins = [origin.strip() for origin in env_str("CORS_ORIGINS", "*").split(",")]
-    origins = [origin for origin in origins if origin]
-    return origins or ["*"]
+    origins_str = env_str("CORS_ORIGINS", "")
+    if origins_str:
+        return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+    # Production defaults — no wildcard
+    return [
+        "http://localhost:3000",
+        "https://micro-agent-beta.vercel.app",
+        "https://frontend-omega-sand-52.vercel.app",
+    ]
 
 
 # ── MongoDB (legacy, optional) ───────────────────────────────────────────────
@@ -118,6 +124,22 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 api_router = APIRouter(prefix="/api")
+
+# ── Rate Limiting (in-memory, per-user) ──────────────────────────────────────
+import time
+_rate_limits: dict[str, list[float]] = {}  # user_id -> [timestamps]
+
+def check_rate_limit(user_id: str, max_requests: int = 10, window_seconds: int = 60) -> bool:
+    """Returns True if allowed, False if rate limited."""
+    if not user_id:
+        return True  # guests not rate-limited by this (frontend handles guest limit)
+    now = time.time()
+    # Clean old entries
+    _rate_limits[user_id] = [t for t in _rate_limits.get(user_id, []) if now - t < window_seconds]
+    if len(_rate_limits[user_id]) >= max_requests:
+        return False
+    _rate_limits[user_id].append(now)
+    return True
 
 MODEL_ID_TO_PROVIDER = {
     "claude-sonnet-4-5-1m": "claude-sonnet-4.5-1m",
@@ -209,6 +231,9 @@ async def deduct_token(user_id: str, model_id: str) -> dict:
         return {"success": True, "cost": 0, "balance": 0, "reason": "guest"}
 
     cost = get_token_cost(model_id)
+    if cost <= 0:
+        return {"success": False, "reason": "invalid_cost", "balance": 0, "required": 0}
+
     balance = await get_user_balance(user_id)
 
     # Auto-seed 50 tokens for first-time users
@@ -1615,35 +1640,67 @@ async def get_subscription(request: Request):
 
 @api_router.post("/user/credits/deduct")
 async def deduct_credits(request: Request):
-    """Deduct credits after a prompt is sent"""
+    """Deduct credits after a prompt is sent — server-side enforced, no trust on frontend cost"""
     if not supa: return _no_supa()
     uid = _get_user_id(request)
     if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
     body = await request.json()
-    cost = int(body.get("cost", 1))
+    model_id = body.get("model_id", "deepseek-v4-flash")
+    # Always compute cost server-side, ignore frontend-provided cost
+    cost = get_token_cost(model_id)
+    if cost <= 0:
+        return JSONResponse({"error": "Invalid model"}, status_code=400)
+
     try:
         res = supa.table("subscriptions").select("id,credits,plan").eq("user_id", uid).eq("status", "active").order("activated_at", desc=True).limit(1).execute()
         if not res.data:
             return JSONResponse({"credits": 0, "plan": "free"})
         sub = res.data[0]
-        new_credits = max(0, (sub["credits"] or 0) - cost)
+        current_credits = sub["credits"] or 0
+        if current_credits < cost:
+            return JSONResponse({"error": "Insufficient credits", "credits": current_credits, "required": cost}, status_code=402)
+        new_credits = current_credits - cost
         supa.table("subscriptions").update({"credits": new_credits}).eq("id", sub["id"]).execute()
+        supa.table("credit_transactions").insert({
+            "user_id": uid, "amount": -cost, "type": "usage", "model": model_id,
+        }).execute()
         return JSONResponse({"credits": new_credits, "plan": sub["plan"]})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+PAKASIR_WEBHOOK_SECRET = env_str("PAKASIR_WEBHOOK_SECRET", "")
+
 @api_router.post("/webhooks/pakasir")
 async def pakasir_webhook(request: Request):
     """Receive payment completion from Pakasir webhook"""
     import hmac, hashlib
+
+    # Rate limit webhook (10 req/min)
+    ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"webhook:{ip}", max_requests=10, window_seconds=60):
+        return JSONResponse({"error": "Rate limited"}, status_code=429)
+
     body = await request.json()
     order_id = body.get("order_id", "")
     amount = body.get("amount", 0)
     status = body.get("status", "")
     project = body.get("project", "")
+    signature = body.get("signature", "")
 
     logger.info(f"Webhook received: order={order_id} amount={amount} status={status} project={project}")
+
+    # Verify signature if secret is configured
+    if PAKASIR_WEBHOOK_SECRET:
+        expected = hmac.new(
+            PAKASIR_WEBHOOK_SECRET.encode(),
+            f"{order_id}{amount}{status}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if signature != expected:
+            logger.warning(f"Webhook signature mismatch for order {order_id}")
+            return JSONResponse({"error": "Invalid signature"}, status_code=403)
 
     # Verify project matches
     if PAKASIR_SLUG and project != PAKASIR_SLUG:
@@ -1652,7 +1709,7 @@ async def pakasir_webhook(request: Request):
     if status != "completed":
         return JSONResponse({"message": f"Status {status} ignored"})
 
-    # Optionally verify with Pakasir API
+    # ALWAYS verify with Pakasir API (never trust webhook alone)
     if PAKASIR_API_KEY and PAKASIR_SLUG:
         try:
             import requests as req
@@ -4109,11 +4166,33 @@ async def get_status_checks():
     return status_checks
 
 
+GUEST_LIMIT = 10
+_guest_counts: dict[str, int] = {}  # session_key -> count (in-memory, resets on restart)
+
+def check_guest_limit(session_key: str) -> bool:
+    """Server-side guest prompt limit. Returns True if allowed."""
+    count = _guest_counts.get(session_key, 0)
+    if count >= GUEST_LIMIT:
+        return False
+    _guest_counts[session_key] = count + 1
+    return True
+
+
 async def stream_chat_response(payload: ChatStreamRequest, request: Request = None) -> AsyncIterator[str]:
     # Extract user_id from auth token if not provided in payload
     effective_user_id = payload.user_id
     if not effective_user_id and request:
         effective_user_id = _get_user_id(request)
+
+    # Server-side guest limit enforcement
+    if not effective_user_id:
+        # Use IP + user-agent as session key for anonymous users
+        ip = request.client.host if request.client else "anon"
+        ua = request.headers.get("user-agent", "")[:50] if request else ""
+        session_key = f"guest:{ip}:{hash(ua)}"
+        if not check_guest_limit(session_key):
+            yield sse("error", {"message": "Batas prompt guest tercapai. Login untuk melanjutkan.", "error_type": "guest_limit"})
+            return
 
     logger.info(f"stream_chat_response: payload.user_id={payload.user_id}, effective_user_id={effective_user_id}, messages={len(payload.messages)}")
 
@@ -4625,6 +4704,10 @@ async def improve_prompt(req: ImprovePromptRequest):
 
 @api_router.post("/chat/stream")
 async def chat_stream(payload: ChatStreamRequest, request: Request):
+    # Rate limit: 15 requests per minute per user
+    uid = _get_user_id(request) or payload.user_id or "anonymous"
+    if not check_rate_limit(uid, max_requests=15, window_seconds=60):
+        return JSONResponse({"error": "Terlalu banyak request. Tunggu sebentar."}, status_code=429)
     return StreamingResponse(
         stream_chat_response(payload, request),
         media_type="text/event-stream; charset=utf-8",
@@ -5270,6 +5353,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Security Headers Middleware ──────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# ── Request Body Size Limit Middleware ────────────────────────────────────────
+MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_BODY_SIZE:
+            from starlette.responses import JSONResponse
+            return JSONResponse({"error": "Request body too large"}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(BodySizeLimitMiddleware)
+
 
 if __name__ == "__main__":
     import uvicorn
