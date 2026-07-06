@@ -4386,6 +4386,15 @@ async def submit_survey(request: Request):
     }
     supa.table("survey_responses").insert(row).execute()
 
+    # 100 token bonus — once per user, guarded by survey_responses existence check above
+    try:
+        cur = await get_user_balance(uid)
+        supa.table("user_credits").upsert({"user_id": uid, "balance": cur + 100}, on_conflict="user_id").execute()
+        supa.table("credit_transactions").insert({"user_id": uid, "amount": 100, "type": "bonus", "model": "survey_reward"}).execute()
+        logger.info(f"Survey bonus +100 tokens for user {uid}")
+    except Exception as e:
+        logger.warning(f"Survey token bonus failed: {e}")
+
     # Optional background extraction from open text
     open_text = " ".join(filter(None, [body.get("pain_points"), body.get("feature_requests")]))
     if open_text.strip() and len(open_text.strip()) > 20:

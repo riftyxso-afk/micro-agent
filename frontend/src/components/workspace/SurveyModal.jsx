@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { toast } from "sonner";
 import { API_BASE_URL } from "@/lib/chatApi";
 
 const FEATURES = [
@@ -53,6 +54,10 @@ export function SurveyModal({ session, onClose }) {
         feature_requests: requests,
       }),
     }).catch(() => {});
+    toast("🎉 Makasih feedbacknya!", {
+      description: "+100 token gratis sudah masuk ke akunmu",
+      duration: 5000,
+    });
     onClose();
   };
 
