@@ -4353,9 +4353,7 @@ async def chat_comparison(payload: ComparisonRequest, request: Request):
     if not COMPARISON_ENABLED:
         return JSONResponse({"enabled": False}, status_code=200)
 
-    uid = _get_user_id(request) or payload.user_id
-    if not uid:
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    uid = _get_user_id(request) or payload.user_id or "anonymous"
 
     msgs = normalize_messages(ChatStreamRequest(
         messages=payload.messages,
