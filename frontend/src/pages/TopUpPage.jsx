@@ -77,7 +77,7 @@ export default function TopUpPage() {
     if (!user) {
       openAuth("login");
     }
-  }, [user, navigate]);
+  }, [user, navigate, openAuth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;

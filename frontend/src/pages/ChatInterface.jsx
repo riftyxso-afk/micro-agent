@@ -784,7 +784,7 @@ export default function ChatInterface() {
     } finally {
       setIsGenerating(false);
     }
-  }, [updateMessage]);
+  }, [updateMessage, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefine = useCallback((assistantId, refined) => {
     const assistantMsg = messages.find((m) => m.id === assistantId);
