@@ -593,7 +593,7 @@ export default function ChatInterface() {
         prompt: text,
         thinkingSteps: [],
         reasoningText: "",
-        isComparison: isCompReq,
+        isComparison: doComparison,
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -672,7 +672,7 @@ export default function ChatInterface() {
         searchModePrompt,
         skillSlug,
         effortLevel,
-        comparisonAtSend: isCompReq,
+        comparisonAtSend: false,
         triggerComparison: doComparison,
       });
     },
