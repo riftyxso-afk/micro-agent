@@ -433,7 +433,7 @@ export default function ChatInterface() {
 
           // Trigger comparison in background if random roll passed
           console.log("[comparison] triggerComparison:", opts.triggerComparison, "user_id:", payload.user_id);
-          if (opts.triggerComparison && payload.user_id) {
+          if (opts.triggerComparison) {
             const compMessages = contextMessages.map((m) => ({ role: m.role, content: m.content }));
             compMessages.push({ role: "user", content: prompt });
             console.log("[comparison] calling API...");
@@ -443,7 +443,7 @@ export default function ChatInterface() {
                 "Content-Type": "application/json",
                 ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
               },
-              body: JSON.stringify({ messages: compMessages, model_id: usedModel?.id, session_id: sessionId, user_id: payload.user_id }),
+              body: JSON.stringify({ messages: compMessages, model_id: usedModel?.id, session_id: sessionId, user_id: user?.id || null }),
             })
               .then((r) => r.json())
               .then((d) => {
