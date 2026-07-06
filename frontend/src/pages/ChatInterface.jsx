@@ -505,16 +505,18 @@ export default function ChatInterface() {
         toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
         return;
       }
-      // Token balance check
-      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
-      const isImgReq = isImageRequest(text);
-      const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
-      const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
-      if (tokenBalance !== null && tokenBalance < tokenCost) {
-        toast("Token tidak cukup", {
-          description: `Model ini butuh ${tokenCost} token, kamu punya ${tokenBalance}.`,
-        });
-        return;
+      // Token balance check (skip for guest — guest uses prompt count, not tokens)
+      if (user) {
+        const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+        const isImgReq = isImageRequest(text);
+        const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
+        const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
+        if (tokenBalance !== null && tokenBalance < tokenCost) {
+          toast("Token tidak cukup", {
+            description: `Model ini butuh ${tokenCost} token, kamu punya ${tokenBalance}.`,
+          });
+          return;
+        }
       }
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
