@@ -487,7 +487,7 @@ export default function ChatInterface() {
     }
 
     try {
-      const data = await uploadAndAnalyze({ files, prompt: text, chatHistory: messages });
+      const data = await uploadAndAnalyze({ files, prompt: text, chatHistory: messages, modelId: model?.id || "" });
       updateMessage(assistantMsgId, { state: "completed", status: "just now", text: data.response || "", uploadedFiles: fileMeta });
     } catch (err) {
       updateMessage(assistantMsgId, { state: "error", status: "failed", error: err.message });

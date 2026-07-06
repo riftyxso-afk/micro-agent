@@ -5043,9 +5043,15 @@ async def upload_and_analyze(
     files: List[UploadFile] = File(...),
     prompt: str = Form(default="Tolong analisis file yang saya upload."),
     chat_history: str = Form(default="[]"),
+    model_id: str = Form(default=""),
 ):
     """Analyze uploaded files (images, PDF, DOCX, XLSX, TXT) using the AI model."""
-    base_url, api_key, provider_name, model = get_provider_config(DEFAULT_MODEL_ID)
+    # Use claude-sonnet-4-5-1m for vision (supports image_url), fallback to default
+    effective_model_id = model_id.strip() or "claude-sonnet-4-5-1m"
+    base_url, api_key, provider_name, model = get_provider_config(effective_model_id)
+    if not base_url or not api_key:
+        # Fallback to default model
+        base_url, api_key, provider_name, model = get_provider_config(DEFAULT_MODEL_ID)
     if not base_url or not api_key:
         return JSONResponse({"error": f"{provider_name} belum dikonfigurasi"}, status_code=500)
 

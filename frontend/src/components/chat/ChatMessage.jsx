@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Wand2, CircleAlert, RotateCcw, Search,
   ExternalLink, ChevronDown, Copy, Check, Download,
+  FileText, FileSpreadsheet, Presentation, File, Image,
 } from "lucide-react";
 import { CodeBlock } from "@/components/chat/CodeBlock";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
@@ -11,13 +12,34 @@ import { DocumentDownloadMenu } from "@/components/chat/DocumentDownloadMenu";
 import { QnaCard } from "@/components/chat/QnaCard";
 import { AiLoadingStream } from "@/components/chat/AiLoadingStream";
 
-const FILE_ICONS = {
-  pdf: "📄", jpg: "🖼️", jpeg: "🖼️", png: "🖼️",
-  gif: "🖼️", webp: "🖼️", docx: "📝", doc: "📝",
-  xlsx: "📊", xls: "📊", txt: "📃", csv: "📃", md: "📃",
+const getFileIcon = (name) => {
+  const ext = (name || "").split(".").pop().toLowerCase();
+  if (["pdf"].includes(ext)) return { Icon: FileText, color: "text-red-500", bg: "bg-red-50 border-red-200", label: "PDF" };
+  if (["docx","doc"].includes(ext)) return { Icon: FileText, color: "text-blue-500", bg: "bg-blue-50 border-blue-200", label: "DOC" };
+  if (["xlsx","xls"].includes(ext)) return { Icon: FileSpreadsheet, color: "text-green-500", bg: "bg-green-50 border-green-200", label: "XLS" };
+  if (["pptx","ppt"].includes(ext)) return { Icon: Presentation, color: "text-orange-500", bg: "bg-orange-50 border-orange-200", label: "PPT" };
+  if (["jpg","jpeg","png","gif","webp"].includes(ext)) return { Icon: Image, color: "text-purple-500", bg: "bg-purple-50 border-purple-200", label: "IMG" };
+  if (["txt","csv","md"].includes(ext)) return { Icon: FileText, color: "text-gray-500", bg: "bg-gray-50 border-gray-200", label: ext.toUpperCase() };
+  return { Icon: File, color: "text-gray-400", bg: "bg-gray-50 border-gray-200", label: "FILE" };
 };
-const fileIcon = (name) =>
-  FILE_ICONS[(name || "").split(".").pop().toLowerCase()] || "📎";
+
+const FileChip = ({ f }) => {
+  const { Icon, color, bg, label } = getFileIcon(f.name);
+  const isImage = f.preview && ["jpg","jpeg","png","gif","webp"].some(e => (f.name||"").toLowerCase().endsWith(e));
+  if (isImage) return (
+    <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white overflow-hidden shadow-sm">
+      <img src={f.preview} alt={f.name} className="h-8 w-8 object-cover" />
+      <span className="max-w-[120px] truncate pr-2.5 text-xs font-medium text-[#374151]">{f.name}</span>
+    </span>
+  );
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-medium text-[#374151] shadow-sm ${bg}`}>
+      <Icon size={13} strokeWidth={1.75} className={color} />
+      <span className={`text-[10px] font-bold ${color}`}>{label}</span>
+      <span className="max-w-[140px] truncate text-[#374151]">{f.name}</span>
+    </span>
+  );
+};
 
 // ── UserMessage ────────────────────────────────────────────────────────────────
 
@@ -26,15 +48,7 @@ export const UserMessage = ({ message }) => (
     <div className="max-w-[80%] sm:max-w-[70%] space-y-2">
       {message.uploadedFiles?.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5">
-          {message.uploadedFiles.map((f, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-xs font-medium text-[#374151] shadow-sm"
-            >
-              <span>{fileIcon(f.name)}</span>
-              <span className="max-w-[160px] truncate">{f.name}</span>
-            </span>
-          ))}
+          {message.uploadedFiles.map((f, i) => <FileChip key={i} f={f} />)}
         </div>
       )}
       {message.text && (
