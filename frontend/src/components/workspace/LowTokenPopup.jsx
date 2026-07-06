@@ -1,3 +1,4 @@
+import { useAuthModal } from "@/App";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -5,6 +6,7 @@ import { Zap, X, ArrowRight, AlertTriangle } from "lucide-react";
 
 export const LowTokenPopup = ({ tokenBalance, onDismiss, isGuest }) => {
   const navigate = useNavigate();
+  const { openAuth } = useAuthModal();
   const [show, setShow] = useState(false);
   const [dismissed, setDismissed] = useState(
     () => sessionStorage.getItem("low_token_dismissed") === "1"
@@ -26,7 +28,7 @@ export const LowTokenPopup = ({ tokenBalance, onDismiss, isGuest }) => {
 
   const handleAction = () => {
     setShow(false);
-    navigate(isGuest ? "/auth" : "/topup", { state: isGuest ? { tab: "login" } : undefined });
+    if (isGuest) openAuth("login"); else navigate("/topup");
   };
 
   return (

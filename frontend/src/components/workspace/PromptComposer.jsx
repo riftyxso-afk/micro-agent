@@ -581,10 +581,10 @@ export const PromptComposer = ({
                 : `Guest mode · ${guestRemaining} of ${GUEST_LIMIT} prompt${GUEST_LIMIT !== 1 ? "s" : ""} left`}
             </span>
           </div>
-          <Link to="/auth" state={{ from: window.location.pathname }}
+          <button type="button" onClick={() => openAuth("login")}
             className="ml-3 shrink-0 rounded-lg bg-[#111111] px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-[#374151]">
             Sign in
-          </Link>
+          </button>
         </div>
       )}
 

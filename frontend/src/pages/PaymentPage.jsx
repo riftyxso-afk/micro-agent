@@ -1,3 +1,4 @@
+import { useAuthModal } from "@/App";
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -35,6 +36,7 @@ export default function PaymentPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const { openAuth } = useAuthModal();
 
   const planId = searchParams.get("plan") || "pro";
   const billingParam = searchParams.get("billing") || "monthly";
@@ -52,9 +54,9 @@ export default function PaymentPage() {
 
   useEffect(() => {
     if (!user) {
-      navigate("/auth", { state: { from: `/payment?plan=${planId}&billing=${billing}`, tab: "login" } });
+      openAuth("login");
     }
-  }, [user, navigate, planId, billing]);
+  }, [user, openAuth, planId, billing]);
 
   const genOrderId = () => {
     const ts = Date.now().toString(36).toUpperCase();
