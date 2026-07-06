@@ -750,8 +750,8 @@ export const PromptComposer = ({
             />
           )}
 
-          {/* RAG Knowledge Base toggle — hidden for guests */}
-          {!isGuest && onRagToggle && (
+          {/* RAG Knowledge Base toggle — always visible */}
+          {onRagToggle && (
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <button

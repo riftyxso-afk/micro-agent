@@ -2039,7 +2039,22 @@ async def seed_credits(request: Request):
 
 @api_router.post("/credits/topup")
 async def topup_credits(request: Request):
-    """Top up tokens (admin or webhook). body: {user_id, amount, type}"""
+    """Top up tokens — webhook only (requires Pakasir signature verification)."""
+    if not supa: return _no_supa()
+    body = await request.json()
+    target_uid = body.get("user_id")
+    amount = int(body.get("amount", 0))
+    tx_type = body.get("type", "topup")
+
+    # Only allow webhook-initiated topups (not direct API calls)
+    ip = request.client.host if request.client else "unknown"
+    logger.warning(f"Direct topup attempt from {ip} — blocked. Use /webhooks/pakasir instead.")
+    return JSONResponse({"error": "Use payment gateway for topups"}, status_code=403)
+
+
+@api_router.post("/credits/topup-internal")
+async def topup_credits_internal(request: Request):
+    """Internal topup — only called by webhook handler (requires webhook auth)."""
     if not supa: return _no_supa()
     body = await request.json()
     target_uid = body.get("user_id")
@@ -2709,8 +2724,9 @@ def get_model_specific_config(model_id: str, effort_level: str, has_web_context:
     effort_config = EFFORT_CONFIGS.get(effort_level, EFFORT_CONFIGS["low"])
     base["max_tokens"] = effort_config["max_tokens"]
 
-    # SumoPod models: NO thinking/effort params (API doesn't support them)
+    # SumoPod models: NO thinking/effort params, but ensure sufficient max_tokens
     if is_sumopod_model(model_id):
+        base["max_tokens"] = max(base["max_tokens"], 4096)
         return base
 
     # Claude Sonnet 4.5 (AIMurah) — manual thinking with budget
