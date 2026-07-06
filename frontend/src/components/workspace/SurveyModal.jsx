@@ -57,9 +57,9 @@ export function SurveyModal({ session, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0">
-      <div className="w-full max-w-lg rounded-2xl border border-[#E5E7EB] bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-[#F0F1F3] px-6 py-4 flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 sm:px-4">
+      <div className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-[#E5E7EB] bg-white shadow-xl max-h-[92dvh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-[#F0F1F3] px-4 sm:px-6 py-3 sm:py-4 flex items-start justify-between">
           <div>
             <h3 className="font-semibold text-[#111111]">Bantu Micro Agent jadi lebih baik 🚀</h3>
             <p className="text-xs text-[#9CA3AF] mt-0.5">2 menit · semua opsional</p>
