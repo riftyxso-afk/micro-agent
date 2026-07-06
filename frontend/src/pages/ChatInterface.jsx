@@ -371,7 +371,6 @@ export default function ChatInterface() {
           } : m));
         },
         onDone: () => {
-          console.log("[comparison] onDone fired, triggerComparison:", opts.triggerComparison);
           // Check if completed text contains a QNA block or COMPARISON_DATA block (fallback)
           setMessages((prev) => {
             const msg = prev.find((m) => m.id === assistantId);
@@ -433,11 +432,9 @@ export default function ChatInterface() {
           abortRef.current = null;
 
           // Trigger comparison in background if random roll passed
-          console.log("[comparison] onDone, receivedToken:", receivedToken, "trigger:", opts.triggerComparison, "user_id:", user?.id);
           if (opts.triggerComparison) {
             const compMessages = contextMessages.map((m) => ({ role: m.role, content: m.content }));
             compMessages.push({ role: "user", content: prompt });
-            console.log("[comparison] calling API...", compMessages.length, "messages");
             fetch(`${API_BASE_URL}/api/chat/comparison`, {
               method: "POST",
               headers: { "Content-Type": "application/json", ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }) },
@@ -445,13 +442,11 @@ export default function ChatInterface() {
             })
               .then((r) => r.json())
               .then((d) => {
-                console.log("[comparison] API response:", JSON.stringify(d).slice(0, 500));
                 if (d.enabled && d.response_a && d.response_b) {
                   updateMessage(assistantId, { comparison: { id: d.comparison_id, responseA: d.response_a, responseB: d.response_b } });
-                  console.log("[comparison] comparison set on message!");
                 }
               })
-              .catch((err) => console.error("[comparison] FETCH ERROR:", err));
+              .catch(() => {});
           }
         },
         onError: (err) => {
@@ -575,8 +570,8 @@ export default function ChatInterface() {
         : "web";
       
       // Detect comparison requests (toggle OR text keywords)
-      // Comparison: random chance (100% for testing, reduce to 0.05 for production)
-      const doComparison = Math.random() < 1.0 && !_isSeed;
+      // Comparison: random 5% chance
+      const doComparison = Math.random() < 0.05 && !_isSeed;
       
       const assistantMsg = {
         id: nextId(),
