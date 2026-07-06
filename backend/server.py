@@ -4317,6 +4317,117 @@ async def stream_chat_response(payload: ChatStreamRequest, request: Request = No
         logger.info(f"Memory extraction skipped at stream endpoint: has_error={has_error}, effective_user_id={effective_user_id}")
 
 
+# ── Response Comparison (A/B Testing) ────────────────────────────────────────
+
+# Config — change without redeploy via env vars
+COMPARISON_ENABLED = env_str("COMPARISON_ENABLED", "false").lower() == "true"
+COMPARISON_SAMPLE_RATE = float(env_str("COMPARISON_SAMPLE_RATE", "0.05"))  # 5% default
+COMPARISON_MODEL_A = env_str("COMPARISON_MODEL_A", "deepseek-v4-flash")
+COMPARISON_MODEL_B = env_str("COMPARISON_MODEL_B", "glm-5")
+COMPARISON_VARIANT = env_str("COMPARISON_VARIANT", "model_ab")  # model_ab | temperature_variance
+
+
+async def _generate_single(messages: list, model_id: str, temperature: float = 0.7, max_tokens: int = 2000) -> str:
+    """Generate a single non-streaming response. Returns text or raises."""
+    base_url, api_key, _, model = get_provider_config(model_id)
+    if not base_url or not api_key:
+        raise RuntimeError(f"Provider not configured for {model_id}")
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": False}
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(provider_url(base_url), headers=headers, json=body)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"] or ""
+
+
+class ComparisonRequest(BaseModel):
+    messages: List[ChatMessageIn]
+    model_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@api_router.post("/chat/comparison")
+async def chat_comparison(payload: ComparisonRequest, request: Request):
+    """Generate two parallel responses for A/B comparison."""
+    if not COMPARISON_ENABLED:
+        return JSONResponse({"enabled": False}, status_code=200)
+
+    uid = _get_user_id(request) or payload.user_id
+    if not uid:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    msgs = normalize_messages(ChatStreamRequest(
+        messages=payload.messages,
+        model_id=payload.model_id or DEFAULT_MODEL_ID,
+        user_id=uid,
+    ))
+
+    # Parallel generate
+    if COMPARISON_VARIANT == "temperature_variance":
+        source_a, source_b = f"{COMPARISON_MODEL_A}@t=0.3", f"{COMPARISON_MODEL_A}@t=1.1"
+        task_a = _generate_single(msgs, COMPARISON_MODEL_A, temperature=0.3)
+        task_b = _generate_single(msgs, COMPARISON_MODEL_A, temperature=1.1)
+    else:  # model_ab
+        source_a, source_b = COMPARISON_MODEL_A, COMPARISON_MODEL_B
+        task_a = _generate_single(msgs, COMPARISON_MODEL_A)
+        task_b = _generate_single(msgs, COMPARISON_MODEL_B)
+
+    results = await asyncio.gather(task_a, task_b, return_exceptions=True)
+    resp_a = results[0] if not isinstance(results[0], Exception) else None
+    resp_b = results[1] if not isinstance(results[1], Exception) else None
+
+    # If both fail, return error
+    if resp_a is None and resp_b is None:
+        return JSONResponse({"error": "Both responses failed"}, status_code=500)
+
+    # If one fails, return as normal response (no comparison UI)
+    if resp_a is None or resp_b is None:
+        return JSONResponse({"fallback": True, "response": resp_a or resp_b})
+
+    # Save to DB
+    comparison_id = None
+    if supa:
+        user_message = next((m.content for m in reversed(payload.messages) if m.role == "user"), "")
+        try:
+            row = supa.table("response_comparisons").insert({
+                "user_id": uid,
+                "session_id": payload.session_id,
+                "user_message": user_message[:2000],
+                "variant_type": COMPARISON_VARIANT,
+                "response_a_source": source_a,
+                "response_a_content": resp_a[:8000],
+                "response_b_source": source_b,
+                "response_b_content": resp_b[:8000],
+            }).execute()
+            comparison_id = row.data[0]["id"] if row.data else None
+        except Exception as e:
+            logger.warning(f"Failed to save comparison: {e}")
+
+    return JSONResponse({
+        "enabled": True,
+        "fallback": False,
+        "comparison_id": comparison_id,
+        "variant_type": COMPARISON_VARIANT,
+        "response_a": resp_a,
+        "response_b": resp_b,
+    })
+
+
+@api_router.post("/chat/comparison/{comparison_id}/choose")
+async def choose_comparison(comparison_id: str, request: Request):
+    """Record user's choice for a comparison."""
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    chosen = body.get("chosen")  # 'a' | 'b' | 'both_good' | 'both_bad'
+    if chosen not in ("a", "b", "both_good", "both_bad"):
+        return JSONResponse({"error": "Invalid choice"}, status_code=400)
+    supa.table("response_comparisons").update({"chosen": chosen}).eq("id", comparison_id).eq("user_id", uid).execute()
+    return JSONResponse({"success": True})
+
+
 # ── Onboarding & Survey ─────────────────────────────────────────────────────
 
 @api_router.get("/onboarding/status")

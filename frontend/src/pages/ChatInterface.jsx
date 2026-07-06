@@ -13,6 +13,7 @@ import { MoreDialog } from "@/components/workspace/MoreDialog";
 import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
 import { RagPanel } from "@/components/workspace/RagPanel";
 import { SurveyModal } from "@/components/workspace/SurveyModal";
+import { ComparisonPanel } from "@/components/chat/ComparisonPanel";
 import {
   getModelById,
   DEFAULT_MODEL_ID,
@@ -202,6 +203,7 @@ export default function ChatInterface() {
         skillSlug = null,
         effortLevel = "low",
         comparisonAtSend = false,
+        triggerComparison = false,
       } = opts;
       // Abort any existing generation before starting a new one
       if (abortRef.current) {
@@ -426,9 +428,31 @@ export default function ChatInterface() {
             });
           }
           setCredits((c) => c !== null ? Math.max(0, c - cost) : null);
-          // Token balance already deducted optimistically in sendMessage; sync from meta if available
           setIsGenerating(false);
           abortRef.current = null;
+
+          // Trigger comparison in background if random roll passed
+          if (opts.triggerComparison && payload.user_id) {
+            const compMessages = contextMessages.map((m) => ({ role: m.role, content: m.content }));
+            compMessages.push({ role: "user", content: prompt });
+            fetch(`${API_BASE_URL}/api/chat/comparison`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+              },
+              body: JSON.stringify({ messages: compMessages, model_id: usedModel?.id, session_id: sessionId, user_id: payload.user_id }),
+            })
+              .then((r) => r.json())
+              .then((d) => {
+                if (d.enabled && d.response_a && d.response_b) {
+                  updateMessage(assistantId, {
+                    comparison: { id: d.comparison_id, responseA: d.response_a, responseB: d.response_b },
+                  });
+                }
+              })
+              .catch(() => {});
+          }
         },
         onError: (err) => {
           updateMessage(assistantId, {
@@ -551,7 +575,8 @@ export default function ChatInterface() {
         : "web";
       
       // Detect comparison requests (toggle OR text keywords)
-      const isCompReq = _comparison || comparisonEnabled || isComparisonRequest(text);
+      // Comparison: random 5% chance for logged-in users
+      const doComparison = user && Math.random() < 0.05 && !_isSeed;
       
       const assistantMsg = {
         id: nextId(),
@@ -648,6 +673,7 @@ export default function ChatInterface() {
         skillSlug,
         effortLevel,
         comparisonAtSend: isCompReq,
+        triggerComparison: doComparison,
       });
     },
     [autoMode, model, messages, room, runGeneration, reasoningEnabled, updateMessage, uploadedFiles, handleFileUploadAnalysis, incrementGuestCount, checkGuestAllowed, navigate, GUEST_LIMIT, decrementCredits, user], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1286,6 +1312,18 @@ export default function ChatInterface() {
               ) : (
                 <div key={m.id}>
                   <AssistantMessage message={m} onRetry={handleRetry} onRefine={handleRefine} onAbort={handleStop} />
+                  {/* Comparison panel */}
+                  {m.comparison && m.state === "completed" && (
+                    <ComparisonPanel
+                      comparisonId={m.comparison.id}
+                      responseA={m.comparison.responseA}
+                      responseB={m.comparison.responseB}
+                      session={session}
+                      onChoose={(chosenResp) => {
+                        updateMessage(m.id, { text: chosenResp, comparison: null });
+                      }}
+                    />
+                  )}
                   {/* Document download button */}
                   {m.downloadUrl && m.state === "completed" && (
                     <div className="mt-2 ml-10">
