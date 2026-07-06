@@ -453,15 +453,6 @@ export default function ChatInterface() {
   );
 
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
-    // File analysis requires Pro
-    if (!isPro) {
-      toast("File analysis membutuhkan Pro", {
-        description: "Upgrade ke Pro untuk menganalisis file.",
-        action: { label: "Upgrade", onClick: () => navigate("/pricing") },
-      });
-      setUploadedFiles([]);
-      return;
-    }
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
     const fileMeta = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
     // Build user-facing prompt (strip auto-generated prefix, keep user text)
