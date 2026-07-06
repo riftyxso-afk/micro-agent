@@ -440,10 +440,330 @@ def provider_url(base_url: str) -> str:
     return f"{clean}/chat/completions"
 
 
+_TOOL_TAG_RE = re.compile(r'\[Tool:\s*[^\]]*\]|<tool_call>[\s\S]*?</tool_call>|<tool_use>[\s\S]*?</tool_use>', re.IGNORECASE)
+
+# ── Tool Definitions ─────────────────────────────────────────────────────────
+WRITE_FILE_TOOL = {
+    "name": "write_file",
+    "description": "Create a complete file with full content. Use this when user asks to create/generate code or files. NEVER write file content directly in your text response.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "file_name": {"type": "string", "description": "Filename with extension, e.g. landing-3d.html"},
+            "file_type": {"type": "string", "description": "File type: html, css, javascript, python, etc"},
+            "content": {"type": "string", "description": "Complete file content"},
+            "description": {"type": "string", "description": "Short description for display"},
+        },
+        "required": ["file_name", "file_type", "content"],
+    },
+}
+
+READ_FILE_TOOL = {
+    "name": "read_file",
+    "description": "Read content of a file that was previously created in this chat. Use BEFORE editing or referencing existing files.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "file_reference": {"type": "string", "description": "File name or artifact ID to read"},
+        },
+        "required": ["file_reference"],
+    },
+}
+
+EDIT_FILE_TOOL = {
+    "name": "edit_file",
+    "description": "Modify a portion of an existing file by replacing old_content with new_content. Use read_file first to verify current content.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "file_reference": {"type": "string", "description": "File name or artifact ID to edit"},
+            "old_content": {"type": "string", "description": "Exact content to replace"},
+            "new_content": {"type": "string", "description": "Replacement content"},
+        },
+        "required": ["file_reference", "old_content", "new_content"],
+    },
+}
+
+WEB_SEARCH_TOOL = {
+    "name": "web_search",
+    "description": "Search the web for current information. Use when you need up-to-date data or are unsure about your answer.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query considering conversation context"},
+        },
+        "required": ["query"],
+    },
+}
+
+WEB_FETCH_TOOL = {
+    "name": "web_fetch",
+    "description": "Fetch content from a specific URL. Use when user provides a link or web_search results need deeper reading.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "URL to fetch"},
+        },
+        "required": ["url"],
+    },
+}
+
+EXECUTE_CODE_TOOL = {
+    "name": "execute_code",
+    "description": "Run Python or JavaScript code in an isolated sandbox. Returns output, errors, and any generated files. Use for computation, data analysis, testing, or file generation via code execution.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "language": {"type": "string", "enum": ["python", "javascript"]},
+            "code": {"type": "string", "description": "Code to execute"},
+        },
+        "required": ["language", "code"],
+    },
+}
+
+ALL_TOOLS = [WRITE_FILE_TOOL, READ_FILE_TOOL, EDIT_FILE_TOOL, WEB_SEARCH_TOOL, WEB_FETCH_TOOL, EXECUTE_CODE_TOOL]
+
+# Active tool invocations per stream (tool_id -> accumulated input)
+_active_tool_calls: dict[str, dict] = {}
+
+
+_artifact_store: dict[str, str] = {}  # file_name -> content (in-memory for session)
+
+
+def _get_artifact_content(file_reference: str) -> str:
+    """Get artifact content by name or ID."""
+    return _artifact_store.get(file_reference, "")
+
+
+async def _save_artifact(file_name: str, file_type: str, content: str, user_id: str = "anonymous") -> dict:
+    """Save file content to Supabase Storage and return artifact info."""
+    if not supa:
+        return {"file_name": file_name, "file_type": file_type, "url": None}
+    try:
+        path = f"artifacts/{user_id}/{uuid.uuid4().hex[:8]}_{file_name}"
+        supa.storage.from("chat-files").upload(path, content.encode("utf-8"), {"content-type": f"text/{file_type}"})
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/chat-files/{path}"
+        return {"file_name": file_name, "file_type": file_type, "url": public_url, "path": path}
+    except Exception as e:
+        logger.warning(f"Artifact storage failed: {e}")
+        return {"file_name": file_name, "file_type": file_type, "url": None}
+
+
+def _handle_write_file(tool_data: dict):
+    """Yield SSE events for a completed write_file tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool output"})
+        return
+
+    file_name = tool_input.get("file_name", "output.txt")
+    file_type = tool_input.get("file_type", "text")
+    content = tool_input.get("content", "")
+    description = tool_input.get("description", "")
+
+    if not content:
+        yield sse("error", {"message": "Empty file content"})
+        return
+
+    # Store in memory
+    _artifact_store[file_name] = content
+
+    # Save to storage
+    import asyncio
+    loop = asyncio.new_event_loop()
+    artifact = loop.run_until_complete(_save_artifact(file_name, file_type, content))
+    loop.close()
+
+    yield sse("artifact", {
+        "file_name": artifact["file_name"],
+        "file_type": artifact["file_type"],
+        "url": artifact.get("url"),
+        "description": description,
+        "content": content[:50000],
+    })
+
+
+def _handle_edit_file(tool_data: dict):
+    """Yield SSE events for edit_file tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool input"})
+        return
+
+    file_ref = tool_input.get("file_reference", "")
+    old_content = tool_input.get("old_content", "")
+    new_content = tool_input.get("new_content", "")
+
+    content = _artifact_store.get(file_ref, "")
+    if not content:
+        yield sse("error", {"message": f"File '{file_ref}' not found"})
+        return
+
+    if old_content not in content:
+        yield sse("error", {"message": "old_content not found in file"})
+        return
+
+    updated = content.replace(old_content, new_content, 1)
+    _artifact_store[file_ref] = updated
+
+    # Save to storage
+    import asyncio
+    loop = asyncio.new_event_loop()
+    file_type = file_ref.rsplit(".", 1)[-1] if "." in file_ref else "text"
+    loop.run_until_complete(_save_artifact(file_ref, file_type, updated))
+    loop.close()
+
+    yield sse("artifact", {
+        "file_name": file_ref,
+        "file_type": file_type,
+        "url": None,
+        "description": f"Updated {file_ref}",
+        "content": updated[:50000],
+    })
+
+
+async def _execute_code_sandbox(language: str, code: str) -> dict:
+    """Execute code in E2B sandbox."""
+    E2B_API_KEY = env_str("E2B_API_KEY", "")
+    if not E2B_API_KEY:
+        return {"output": "", "error": "Code execution not configured (E2B_API_KEY missing)", "files": []}
+
+    try:
+        from e2b_code_interpreter import Sandbox
+        with Sandbox(api_key=E2B_API_KEY) as sandbox:
+            execution = sandbox.run_code(code)
+            return {
+                "output": getattr(execution, "text", "") or "",
+                "error": getattr(execution, "error", None) or "",
+                "logs": getattr(execution, "logs", []) or [],
+            }
+    except Exception as e:
+        logger.exception("E2B execution failed")
+        return {"output": "", "error": str(e), "files": []}
+
+
+def _handle_execute_code(tool_data: dict):
+    """Yield SSE events for execute_code tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool input"})
+        return
+
+    language = tool_input.get("language", "python")
+    code = tool_input.get("code", "")
+
+    if not code:
+        yield sse("error", {"message": "No code provided"})
+        return
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    result = loop.run_until_complete(_execute_code_sandbox(language, code))
+    loop.close()
+
+    output_text = result.get("output", "")
+    error_text = result.get("error", "")
+
+    yield sse("code_execution", {
+        "language": language,
+        "code": code[:10000],
+        "output": output_text[:10000],
+        "error": error_text[:5000],
+        "success": not error_text,
+    })
+
+
+def _handle_web_search_tool(tool_data: dict):
+    """Yield SSE events for web_search tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool input"})
+        return
+
+    query = tool_input.get("query", "")
+    if not query:
+        yield sse("error", {"message": "Empty search query"})
+        return
+
+    yield sse("status", {"phase": "web_search", "status": "started", "query": query})
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        provider, results = loop.run_until_complete(web_search(query, max_results=5))
+    except Exception as e:
+        logger.warning(f"Web search tool failed: {e}")
+        results = []
+    loop.close()
+
+    yield sse("status", {
+        "phase": "web_search",
+        "status": "results",
+        "query": query,
+        "results": [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results[:5]],
+    })
+
+    # Format results as context for model
+    context = format_search_context(query, results) if results else "No results found."
+    yield sse("tool_result", {"tool": "web_search", "result": context[:8000]})
+
+
+def _handle_web_fetch_tool(tool_data: dict):
+    """Yield SSE events for web_fetch tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool input"})
+        return
+
+    url = tool_input.get("url", "")
+    if not url:
+        yield sse("error", {"message": "Empty URL"})
+        return
+
+    yield sse("status", {"phase": "web_search", "status": "started", "query": url})
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        content = loop.run_until_complete(_fetch_url(url))
+    except Exception as e:
+        content = f"Error fetching URL: {e}"
+    loop.close()
+
+    yield sse("status", {"phase": "web_fetch", "status": "completed", "result_count": 1})
+    yield sse("tool_result", {"tool": "web_fetch", "result": content[:8000]})
+
+
+def _handle_read_file_tool(tool_data: dict):
+    """Yield SSE events for read_file tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse tool input"})
+        return
+
+    file_ref = tool_input.get("file_reference", "")
+    content = _artifact_store.get(file_ref, "")
+
+    if not content:
+        yield sse("tool_result", {"tool": "read_file", "result": f"File '{file_ref}' not found."})
+        return
+
+    yield sse("tool_result", {"tool": "read_file", "result": content[:8000]})
+
+
 def extract_delta_text(choice: dict) -> str:
     delta = choice.get("delta") or {}
     content = delta.get("content")
-    return content if isinstance(content, str) else ""
+    if not isinstance(content, str):
+        return ""
+    # Strip hallucinated tool-call tags from model output
+    return _TOOL_TAG_RE.sub("", content)
 
 
 def extract_reasoning_content(choice: dict) -> str:
@@ -1691,13 +2011,11 @@ async def pakasir_webhook(request: Request):
 
     logger.info(f"Webhook received: order={order_id} amount={amount} status={status} project={project}")
 
-    # Verify signature if secret is configured
+    # Verify signature if secret is configured (Pakasir format: base64(sha256(secret + payload)))
     if PAKASIR_WEBHOOK_SECRET:
-        expected = hmac.new(
-            PAKASIR_WEBHOOK_SECRET.encode(),
-            f"{order_id}{amount}{status}".encode(),
-            hashlib.sha256,
-        ).hexdigest()
+        import base64
+        raw_body = json.dumps(body, separators=(",", ":"))
+        expected = base64.b64encode(hashlib.sha256((PAKASIR_WEBHOOK_SECRET + raw_body).encode("utf-8")).digest()).decode("utf-8").rstrip("=")
         if signature != expected:
             logger.warning(f"Webhook signature mismatch for order {order_id}")
             return JSONResponse({"error": "Invalid signature"}, status_code=403)
@@ -2592,10 +2910,10 @@ def normalize_messages(payload: ChatStreamRequest, web_context: str = "") -> Lis
     # Auto web search instruction
     auto_search_instruction = """
 
-AUTO WEB SEARCH:
-Gunakan tool pencarian web KAPAN SAJA kamu tidak yakin dengan jawabanmu atau informasi yang kamu miliki mungkin sudah usang.
-Jangan tunggu instruksi eksplisit dari user — jika ada keraguan, search dulu sebelum jawab.
-Contoh kapan harus search: data terkini (harga, berita, cuaca), info yang berubah-ubah, atau saat kamu ragu.
+PENTING — ATURAN WEB SEARCH:
+Ketika informasi dari web dibutuhkan, sistem akan secara otomatis mencari informasi sebelum menjawab.
+Jangan pernah menggunakan format [Tool: ...] atau tag tool lainnya dalam jawabanmu — cukup berikan jawaban langsung berdasarkan informasi yang tersedia.
+Jika kamu tidak yakin dengan jawaban, silakan langsung menjawab dengan pengetahuan yang kamu miliki.
 """
 
     # Layer B: Inject user memories into system prompt
@@ -2784,6 +3102,7 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
         "model": model,
         "messages": normalize_messages(payload, web_context=web_context),
         **model_config,
+        "tools": ALL_TOOLS,
     }
 
     headers = {
@@ -2816,6 +3135,8 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 )
                 return
 
+            _tool_calls: dict[str, dict] = {}  # tool_id -> accumulated input JSON
+
             for raw_line in response.iter_lines(decode_unicode=True):
                 if not raw_line:
                     continue
@@ -2823,6 +3144,10 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 if line.startswith("data:"):
                     line = line[5:].strip()
                 if line == "[DONE]":
+                    # Process any completed tool calls
+                    for tool_id, tool_data in _tool_calls.items():
+                        if tool_data.get("name") == "write_file":
+                            yield from _handle_write_file(tool_data)
                     yield sse("done", {"status": "completed"})
                     return
                 try:
@@ -2836,6 +3161,18 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                     continue
                 choice = choices[0] or {}
 
+                # Handle tool_calls in OpenAI-compatible format (SumoPod)
+                tool_calls = choice.get("tool_calls") or []
+                for tc in tool_calls:
+                    tc_id = tc.get("id", "")
+                    func = tc.get("function", {})
+                    if tc_id and func.get("name") == "write_file":
+                        # Accumulate input JSON
+                        if tc_id not in _tool_calls:
+                            _tool_calls[tc_id] = {"name": "write_file", "input_json": ""}
+                            yield sse("status", {"phase": "tool_use", "status": "started", "tool": "write_file"})
+                        _tool_calls[tc_id]["input_json"] += func.get("arguments", "")
+
                 reasoning = extract_reasoning_content(choice)
                 if reasoning and payload.reasoning:
                     yield sse("reasoning", {"text": reasoning})
@@ -2843,6 +3180,27 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 token = extract_delta_text(choice)
                 if token:
                     yield sse("token", {"text": token})
+
+                # Handle finish_reason: tool_calls
+                if choice.get("finish_reason") == "tool_calls":
+                    # Process all accumulated tool calls
+                    _tool_handlers = {
+                        "write_file": _handle_write_file,
+                        "read_file": _handle_read_file_tool,
+                        "edit_file": _handle_edit_file,
+                        "web_search": _handle_web_search_tool,
+                        "web_fetch": _handle_web_fetch_tool,
+                        "execute_code": _handle_execute_code,
+                    }
+                    for tool_id, tool_data in _tool_calls.items():
+                        handler = _tool_handlers.get(tool_data.get("name"))
+                        if handler:
+                            yield sse("status", {"phase": "tool_use", "status": "started", "tool": tool_data.get("name")})
+                            yield from handler(tool_data)
+                            yield sse("status", {"phase": "tool_use", "status": "completed", "tool": tool_data.get("name")})
+                    yield sse("done", {"status": "completed"})
+                    return
+
                 if choice.get("finish_reason"):
                     yield sse("done", {"status": "completed"})
                     return

@@ -31,6 +31,7 @@ import { isVaguePrompt, getCodingOptions } from "@/lib/promptClarifier";
 import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { CodeGenerationPanel } from "@/components/chat/CodeGenerationPanel";
+import { ArtifactCard } from "@/components/chat/ArtifactCard";
 import { LoadingAnimation, getLoadingType } from "@/components/chat/LoadingAnimation";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
@@ -370,6 +371,30 @@ export default function ChatInterface() {
           setMessages((prev) => prev.map((m) => m.id === assistantId ? {
             ...m,
             comparisonData,
+          } : m));
+        },
+        onArtifact: (artifact) => {
+          setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+            ...m,
+            artifact: {
+              fileName: artifact.file_name,
+              fileType: artifact.file_type,
+              url: artifact.url,
+              description: artifact.description,
+              content: artifact.content,
+            },
+          } : m));
+        },
+        onCodeExecution: (exec) => {
+          setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+            ...m,
+            codeExecution: {
+              language: exec.language,
+              code: exec.code,
+              output: exec.output,
+              error: exec.error,
+              success: exec.success,
+            },
           } : m));
         },
         onDone: () => {
@@ -1290,13 +1315,16 @@ export default function ChatInterface() {
                       prompt={m.codeGenPrompt}
                       userId={user?.id || "anonymous"}
                       modelId={model?.id || "deepseek-v4-flash"}
-                      onComplete={({ filename, downloadUrl }) => {
+                      onComplete={({ filename, downloadUrl, codeContent }) => {
                         updateMessage(m.id, {
                           state: "completed",
                           status: "just now",
                           text: `Dokumen ${filename} berhasil dibuat!`,
                           downloadUrl,
                           downloadFilename: filename,
+                          artifactFilename: filename,
+                          artifactCode: codeContent,
+                          artifactLanguage: filename?.split('.').pop(),
                         });
                         setIsGenerating(false);
                         decrementCredits(model?.credits || 1);

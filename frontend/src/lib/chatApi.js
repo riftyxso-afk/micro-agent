@@ -218,6 +218,8 @@ export function streamChat({
   onDone,
   onError,
   onComparisonData,
+  onArtifact,
+  onCodeExecution,
 }) {
   streamLog("request:start", {
     url: `${API_BASE_URL}/api/chat/stream`,
@@ -335,6 +337,14 @@ export function streamChat({
             case "comparison_data":
               streamLog("event:comparison_data", parsed);
               onComparisonData?.(parsed);
+              break;
+            case "artifact":
+              streamLog("event:artifact", parsed);
+              onArtifact?.(parsed);
+              break;
+            case "code_execution":
+              streamLog("event:code_execution", parsed);
+              onCodeExecution?.(parsed);
               break;
             default:
               streamLog("event:unknown", currentEvent, parsed);
