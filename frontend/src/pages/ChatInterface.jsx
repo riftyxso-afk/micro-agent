@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -62,7 +64,7 @@ export default function ChatInterface() {
 
   const seed = location.state || null;
 
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [activeNav, setActiveNav] = useState("new");
   const [activeDialog, setActiveDialog] = useState(null);
   const [credits, setCredits] = useState(null);
@@ -539,7 +541,7 @@ export default function ChatInterface() {
       // Guest limit gate — seed prompts already counted in HomeWorkspace
       const allowed = _isSeed ? checkGuestAllowed() : incrementGuestCount();
       if (!allowed) {
-        navigate("/auth", { state: { from: "/chat", tab: "login" } });
+        openAuth("login");
         toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
         return;
       }

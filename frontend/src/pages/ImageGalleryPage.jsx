@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -63,7 +65,7 @@ export default function ImageGalleryPage() {
       <div className="min-h-dvh bg-[#F7F7F8] flex flex-col items-center justify-center gap-4 px-4">
         <ImageIcon size={40} strokeWidth={1.25} className="text-[#D1D5DB]" />
         <p className="text-sm font-medium text-[#6B7280]">Sign in to view your generated images</p>
-        <button onClick={() => navigate("/auth")} className="rounded-xl bg-[#111111] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#2D2D2D] transition-colors">
+        <button onClick={() => openAuth("login")} className="rounded-xl bg-[#111111] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#2D2D2D] transition-colors">
           Sign In
         </button>
       </div>

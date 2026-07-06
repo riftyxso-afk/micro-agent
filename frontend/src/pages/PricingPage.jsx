@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCurrency } from "@/hooks/useCurrency";
@@ -218,7 +220,7 @@ export default function PricingPage() {
 
   const handleTopUp = async () => {
     if (!user) {
-      navigate("/auth", { state: { from: "/pricing" } });
+      openAuth("login");
       return;
     }
     const pkg = TOKEN_PACKAGES.find((p) => p.id === selectedPkg);
@@ -322,7 +324,7 @@ export default function PricingPage() {
 
   const handleRedeemPromo = async () => {
     if (!user) {
-      navigate("/auth", { state: { from: "/pricing" } });
+      openAuth("login");
       return;
     }
     try {

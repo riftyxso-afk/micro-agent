@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
@@ -483,7 +485,7 @@ export const PromptComposer = ({
       {isGuest && (
         <div className="mb-2 rounded-xl bg-[#FFF7ED] border border-[#FED7AA] px-3 py-2 text-center">
           <p className="text-[11px] text-[#C2410C]">
-            Guest mode — <button onClick={() => navigate("/auth")} className="underline font-semibold hover:text-[#9A3412]">Sign in</button> to unlock all models &amp; features
+            Guest mode — <button onClick={() => openAuth("login")} className="underline font-semibold hover:text-[#9A3412]">Sign in</button> to unlock all models &amp; features
           </p>
         </div>
       )}

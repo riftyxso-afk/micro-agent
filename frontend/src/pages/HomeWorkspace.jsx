@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
@@ -102,7 +104,7 @@ export default function HomeWorkspace() {
   const handleSend = (text, attachments = [], searchModePrompt = "", searchModeId = "web", modeWebSearch = true, skillSlug = null, effortLevel = "low") => {
     const allowed = incrementGuestCount();
     if (!allowed) {
-      navigate("/auth", { state: { from: "/home", tab: "login" } });
+      openAuth("login");
       toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
       return;
     }
@@ -230,7 +232,7 @@ export default function HomeWorkspace() {
                   <span className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
                   Guest
                   <span className="mx-1 h-3 w-px bg-[#E5E7EB]" />
-                  <button onClick={() => navigate("/auth")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
+                  <button onClick={() => openAuth("login")} className="font-semibold text-[#6366F1] hover:text-[#4338CA] transition-colors">
                     Sign in
                   </button>
                 </span>
@@ -273,7 +275,7 @@ export default function HomeWorkspace() {
               <button
                 type="button"
                 data-testid="signin-badge"
-                onClick={() => navigate("/auth")}
+                onClick={() => openAuth("login")}
                 className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white/80 py-1.5 px-3 text-xs backdrop-blur-sm text-[#6366F1] font-medium transition-colors hover:text-[#4338CA]"
               >
                 Sign in for full access

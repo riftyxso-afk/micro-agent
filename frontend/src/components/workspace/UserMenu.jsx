@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState } from "react";
 import { Settings, LogOut, UserRound, LogIn } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -80,7 +82,7 @@ export const UserMenu = ({ size = 40 }) => {
           ) : isSupabaseEnabled ? (
             <DropdownMenuItem
               data-testid="user-menu-signin"
-              onClick={() => navigate("/auth", { state: { tab: "login" } })}
+              onClick={() => openAuth("login")}
               className="cursor-pointer rounded-xl px-2.5 py-2 text-sm text-[#374151]"
             >
               <LogIn size={16} strokeWidth={1.75} className="text-[#6B7280]" />

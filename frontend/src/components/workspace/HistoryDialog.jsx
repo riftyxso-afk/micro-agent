@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Dialog,
@@ -114,7 +116,7 @@ export const HistoryDialog = ({ open, onOpenChange }) => {
             <div className="flex flex-col items-center gap-2 py-12 text-center">
               <History size={20} strokeWidth={1.75} className="text-[#D1D5DB]" />
               <p className="text-sm text-[#9CA3AF]">Sign in to see your chat history</p>
-              <button onClick={() => { onOpenChange(false); navigate("/auth"); }}
+              <button onClick={() => { onOpenChange(false); openAuth("login"); }}
                 className="mt-1 text-sm font-medium text-[#3B6EF6] hover:underline">Sign in</button>
             </div>
           ) : filtered.length === 0 ? (

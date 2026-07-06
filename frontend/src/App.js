@@ -1,4 +1,5 @@
 import "@/App.css";
+import { useState, createContext, useContext } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -10,7 +11,6 @@ import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
 import IntroducingCLIPage from "@/pages/IntroducingCLIPage";
 import SkillsPage from "@/pages/SkillsPage";
-import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
 import EmailVerificationPage from "@/pages/EmailVerificationPage";
@@ -22,10 +22,20 @@ import BuilderPage from "@/pages/BuilderPage";
 import ProjectWorkspacePage from "@/pages/ProjectWorkspacePage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import { AuthProvider } from "@/lib/AuthContext";
+import { AuthModal } from "@/components/workspace/AuthModal";
+
+// Global auth modal state
+const AuthModalContext = createContext(null);
+export const useAuthModal = () => useContext(AuthModalContext);
 
 function App() {
+  const [authModal, setAuthModal] = useState({ open: false, tab: "login" });
+  const openAuth = (tab = "login") => setAuthModal({ open: true, tab });
+  const closeAuth = () => setAuthModal({ open: false, tab: "login" });
+
   return (
     <AuthProvider>
+    <AuthModalContext.Provider value={{ openAuth, closeAuth }}>
     <TooltipProvider delayDuration={200}>
       <BrowserRouter>
         <Routes>
@@ -38,9 +48,7 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/introducing-opus" element={<IntroducingOpusPage />} />
           <Route path="/skills" element={<SkillsPage />} />
-          {/* Studio and Supercomputer routes removed - to be rebuilt */}
           <Route path="/cli" element={<IntroducingCLIPage />} />
-          <Route path="/auth" element={<AuthPage />} />
           <Route path="/payment" element={<PaymentPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />
           <Route path="/verify" element={<EmailVerificationPage />} />
@@ -51,8 +59,10 @@ function App() {
           <Route path="/builder" element={<BuilderPage />} />
           <Route path="/project/:id" element={<ProjectWorkspacePage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/auth" element={<Navigate to="/home" replace />} />
         </Routes>
       </BrowserRouter>
+      <AuthModal open={authModal.open} onClose={closeAuth} defaultTab={authModal.tab} />
       <Toaster
         position="top-center"
         theme="light"
@@ -65,6 +75,7 @@ function App() {
         }}
       />
     </TooltipProvider>
+    </AuthModalContext.Provider>
     </AuthProvider>
   );
 }

@@ -123,28 +123,19 @@ export const ToolsMenu = ({
               </button>
             )}
 
-            {/* Skills row */}
+            {/* Skills row — coming soon */}
             <button
               type="button"
-              onClick={() => togglePanel(PANELS.skills)}
-              className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F7F7F8] ${
-                panel === PANELS.skills ? "bg-[#F7F7F8]" : ""
-              }`}
+              onClick={() => toast("Coming soon!", { description: "Custom skills will be available in a future update." })}
+              className="flex w-full items-center gap-3 px-3 py-2.5 text-left opacity-50 cursor-not-allowed"
             >
-              <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                activeSkill ? "bg-[#4338CA] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-              }`}>
-                {activeSkill ? <span className="text-[13px]">{activeSkill.icon}</span> : <Zap size={14} strokeWidth={1.75} />}
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#F3F4F6] text-[#6B7280]">
+                <Zap size={14} strokeWidth={1.75} />
               </span>
               <span className="flex-1">
                 <span className="block text-[13px] font-medium text-[#111111]">Skills</span>
-                <span className={`block text-[11px] ${
-                  activeSkill ? "text-[#4338CA]" : "text-[#9CA3AF]"
-                }`}>{activeSkill ? activeSkill.name : "None"}</span>
+                <span className="block text-[11px] text-[#9CA3AF]">Coming soon</span>
               </span>
-              <ChevronRight size={13} strokeWidth={1.75} className={`text-[#D1D5DB] transition-transform ${
-                panel === PANELS.skills ? "rotate-90" : ""
-              }`} />
             </button>
           </div>
 

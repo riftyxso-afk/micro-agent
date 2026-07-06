@@ -1,3 +1,5 @@
+import { useAuthModal } from "@/App";
+const { openAuth } = useAuthModal();
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
@@ -73,7 +75,7 @@ export default function TopUpPage() {
 
   useEffect(() => {
     if (!user) {
-      navigate("/auth", { state: { from: "/topup" } });
+      openAuth("login");
     }
   }, [user, navigate]);
 
@@ -100,7 +102,7 @@ export default function TopUpPage() {
 
   const handleTopUp = async () => {
     if (!user) {
-      navigate("/auth", { state: { from: "/topup" } });
+      openAuth("login");
       return;
     }
     const pkg = TOKEN_PACKAGES.find((p) => p.id === selectedPkg);
