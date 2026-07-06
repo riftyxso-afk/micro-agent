@@ -208,6 +208,7 @@ export const PromptComposer = ({
   const navigate = useNavigate();
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
+  const isGuest = !user;
   const [value, setValue] = useState(initialValue);
   const [attachments, setAttachments] = useState([]); // filenames (non-pro) or { file, preview } objects (pro)
   const [fileObjects, setFileObjects] = useState([]); // raw File objects + preview URL for pro mode
@@ -467,8 +468,26 @@ export const PromptComposer = ({
     setDrillView("effort");
   };
 
+  // Guest mode: force DeepSeek, disable all features
+  const GUEST_MODEL = "deepseek-v4-flash";
+  const guestForce = isGuest ? {
+    model: { id: GUEST_MODEL, name: "DeepSeek v4 Flash", credits: 1 },
+    deepResearch: false,
+    comparison: false,
+    skills: false,
+  } : {};
+
   return (
     <div className="relative mx-auto w-full">
+      {/* Guest mode banner */}
+      {isGuest && (
+        <div className="mb-2 rounded-xl bg-[#FFF7ED] border border-[#FED7AA] px-3 py-2 text-center">
+          <p className="text-[11px] text-[#C2410C]">
+            Guest mode — <button onClick={() => navigate("/auth")} className="underline font-semibold hover:text-[#9A3412]">Sign in</button> to unlock all models &amp; features
+          </p>
+        </div>
+      )}
+
       {/* Improve Prompt Preview — appears above composer */}
       {improvePreview && (
         <div
@@ -715,20 +734,22 @@ export const PromptComposer = ({
             onChange={handleFiles}
             data-testid="prompt-composer-file-input"
           />
-          {/* Tools Menu (AI Mode + Skills) - search now always automatic */}
-          <ToolsMenu
-            reasoningEnabled={reasoningEnabled}
-            deepResearchMode={deepResearchMode}
-            onDeepResearchToggle={() => setDeepResearchMode((d) => !d)}
-            activeSkill={activeSkill}
-            onSkillSelect={(skill) => setActiveSkill(skill)}
-            onSkillClear={() => setActiveSkill(null)}
-            comparisonEnabled={comparisonEnabled}
-            onComparisonToggle={onComparisonToggle}
-          />
+          {/* Tools Menu (AI Mode + Skills) — hidden for guests */}
+          {!isGuest && (
+            <ToolsMenu
+              reasoningEnabled={reasoningEnabled}
+              deepResearchMode={deepResearchMode}
+              onDeepResearchToggle={() => setDeepResearchMode((d) => !d)}
+              activeSkill={activeSkill}
+              onSkillSelect={(skill) => setActiveSkill(skill)}
+              onSkillClear={() => setActiveSkill(null)}
+              comparisonEnabled={comparisonEnabled}
+              onComparisonToggle={onComparisonToggle}
+            />
+          )}
 
-          {/* RAG Knowledge Base toggle */}
-          {onRagToggle && (
+          {/* RAG Knowledge Base toggle — hidden for guests */}
+          {!isGuest && onRagToggle && (
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <button
@@ -788,14 +809,20 @@ export const PromptComposer = ({
               type="button"
               data-testid="model-selector-trigger"
               aria-label={`Active model: ${model.name}`}
-              onClick={() => setDropdownOpen((d) => !d)}
-              className="ma-focus flex h-8 items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 text-[12px] font-medium text-[#111111] transition-colors duration-150 hover:bg-[#F7F7F8] active:scale-[0.98] sm:px-2"
+              onClick={() => {
+                if (isGuest) {
+                  toast("Sign in to change model", { description: "Guest mode only supports DeepSeek v4 Flash" });
+                  return;
+                }
+                setDropdownOpen((d) => !d);
+              }}
+              className={`ma-focus flex h-8 items-center gap-1 rounded-lg border border-[#E5E7EB] bg-white px-1.5 text-[12px] font-medium transition-colors duration-150 sm:px-2 ${isGuest ? "cursor-not-allowed opacity-60" : "text-[#111111] hover:bg-[#F7F7F8] active:scale-[0.98]"}`}
             >
               <ModelIcon model={model} size={16} />
               <span data-testid="model-selector-label" className="hidden truncate sm:inline max-w-[100px]">
                 {model.shortName || model.name}
               </span>
-              <ChevronDown size={12} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
+              {!isGuest && <ChevronDown size={12} strokeWidth={2} className={`text-[#9CA3AF] transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />}
             </button>
 
               {dropdownOpen && (

@@ -543,8 +543,10 @@ export default function ChatInterface() {
         toast("Prompt limit reached", { description: `Sign in to continue. Guest limit: ${GUEST_LIMIT} prompts.` });
         return;
       }
-      // Token balance check (skip for guest — guest uses prompt count, not tokens)
-      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+      // Guest mode: force DeepSeek, skip token check
+      const usedModel = !user
+        ? getModelById("deepseek-v4-flash")
+        : (autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model);
       const isImgReq = isImageRequest(text);
       const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
       const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
@@ -675,6 +677,10 @@ export default function ChatInterface() {
   );
 
   const handleDeepResearch = useCallback(async (query) => {
+    if (!user) {
+      toast("Sign in to use Deep Research", { description: "Guest mode only supports basic chat." });
+      return;
+    }
     const userMsg = { id: nextId(), role: "user", text: query };
     const usedModel = getModelById(DEFAULT_MODEL_ID);
     const researchMsgId = nextId();
