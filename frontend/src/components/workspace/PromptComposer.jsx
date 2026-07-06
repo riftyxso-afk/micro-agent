@@ -209,6 +209,7 @@ export const PromptComposer = ({
   const navigate = useNavigate();
   const { user, guestRemaining, isGuestLimitReached, GUEST_LIMIT } = useAuth();
   const { isPro } = useSubscription();
+  const { openAuth } = useAuthModal();
   const isGuest = !user;
   const [value, setValue] = useState(initialValue);
   const [attachments, setAttachments] = useState([]); // filenames (non-pro) or { file, preview } objects (pro)

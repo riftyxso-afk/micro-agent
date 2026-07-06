@@ -61,8 +61,8 @@ function App() {
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/auth" element={<Navigate to="/home" replace />} />
         </Routes>
+        <AuthModal open={authModal.open} onClose={closeAuth} defaultTab={authModal.tab} />
       </BrowserRouter>
-      <AuthModal open={authModal.open} onClose={closeAuth} defaultTab={authModal.tab} />
       <Toaster
         position="top-center"
         theme="light"
