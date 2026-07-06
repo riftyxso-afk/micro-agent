@@ -575,8 +575,8 @@ export default function ChatInterface() {
         : "web";
       
       // Detect comparison requests (toggle OR text keywords)
-      // Comparison: random 5% chance for logged-in users
-      const doComparison = user && Math.random() < 0.05 && !_isSeed;
+      // Comparison: random chance for logged-in users (rate from backend)
+      const doComparison = user && Math.random() < 1.0 && !_isSeed; // temporarily 100% for testing
       
       const assistantMsg = {
         id: nextId(),
