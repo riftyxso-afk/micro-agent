@@ -115,15 +115,11 @@ const AssistantHeader = ({ message }) => {
         </span>
       )}
 
-      <span data-testid="assistant-status" className="text-xs text-[#9CA3AF]">
-        {generating ? (
-          <span className="ma-shimmer-text">· generating...</span>
-        ) : message.state === "error" ? (
-          "· failed"
-        ) : (
-          `· ${message.status || "just now"}`
-        )}
-      </span>
+      {!generating && message.state !== "error" && (
+        <span data-testid="assistant-status" className="text-xs text-[#9CA3AF]">
+          {`· ${message.status || "just now"}`}
+        </span>
+      )}
     </div>
   );
 };
