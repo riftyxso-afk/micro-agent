@@ -2709,25 +2709,26 @@ def get_model_specific_config(model_id: str, effort_level: str, has_web_context:
     effort_config = EFFORT_CONFIGS.get(effort_level, EFFORT_CONFIGS["low"])
     base["max_tokens"] = effort_config["max_tokens"]
 
-    # Claude Sonnet 4.5 — manual thinking with budget
+    # SumoPod models: NO thinking/effort params (API doesn't support them)
+    if is_sumopod_model(model_id):
+        return base
+
+    # Claude Sonnet 4.5 (AIMurah) — manual thinking with budget
     if model_id in ["claude-sonnet-4-5", "claude-sonnet-4.5", "claude-sonnet-4-5-1m"]:
         budget = 8000 if effort_level in ["high", "xhigh", "max"] else 4000
         base["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        # Increase max_tokens to accommodate thinking
         base["max_tokens"] = max(base["max_tokens"], budget + 4000)
 
-    # Claude Sonnet 5 — adaptive thinking with effort
-    elif model_id == "claude-sonnet-5":
+    # Claude Sonnet 5 (AIMurah only) — adaptive thinking with effort
+    elif model_id == "claude-sonnet-5" and not is_sumopod_model(model_id):
         base["thinking"] = {"type": "adaptive"}
-        # Map effort_level to Claude's effort parameter
         effort_map = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "max"}
         base["effort"] = effort_map.get(effort_level, "medium")
 
-    # Claude Fable 5 — always adaptive, only effort param
-    elif model_id == "claude-fable-5":
+    # Claude Fable 5 (AIMurah only) — always adaptive, only effort param
+    elif model_id == "claude-fable-5" and not is_sumopod_model(model_id):
         effort_map = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "max"}
         base["effort"] = effort_map.get(effort_level, "medium")
-        # Do NOT send thinking param — Fable always uses adaptive internally
 
     return base
 
