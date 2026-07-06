@@ -39,17 +39,19 @@ import { ModelIcon } from "@/components/workspace/ModelIcon";
 import { MODELS } from "@/lib/workspaceData";
 import { SlashCommandPalette } from "@/components/workspace/SlashCommandPalette";
 
-const IconAction = ({ testId, label, icon: Icon, onClick, active = false }) => (
+const IconAction = ({ testId, label, icon: Icon, onClick, active = false, disabled = false }) => (
   <Tooltip delayDuration={200}>
     <TooltipTrigger asChild>
       <button
         type="button"
         data-testid={testId}
         aria-label={label}
-        aria-pressed={active}
+        disabled={disabled}
         onClick={onClick}
         className={`ma-focus grid h-9 w-9 place-items-center rounded-xl transition-colors duration-150 ease-out active:scale-[0.95] ${
-          active
+          disabled
+            ? "cursor-not-allowed opacity-40 text-[#9CA3AF]"
+            : active
             ? "bg-[#EFF4FF] text-[#3B6EF6]"
             : "text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]"
         }`}
@@ -765,12 +767,18 @@ export const PromptComposer = ({
             </TooltipContent>
           </Tooltip>
 
-          {/* Attach — always visible */}
+          {/* Attach — disabled when tokens exhausted */}
           <IconAction
             testId="prompt-composer-attach-button"
-            label="Attach files"
+            label={tokenBalance === 0 ? "Token habis" : "Attach files"}
             icon={Paperclip}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (tokenBalance === 0) {
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
+            disabled={tokenBalance === 0}
           />
         </div>
 
