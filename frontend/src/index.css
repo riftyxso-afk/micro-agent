@@ -12,6 +12,12 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* Fallback for dvh (dynamic viewport height) on older mobile browsers */
+@supports not (height: 100dvh) {
+    .min-h-dvh { min-height: 100vh; min-height: 100svh; }
+    .h-dvh { height: 100vh; height: 100svh; }
+}
+
 code {
     font-family:
         source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
