@@ -453,6 +453,31 @@ export default function ChatInterface() {
   );
 
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
+    // Free users: max 2 file uploads
+    if (!isPro && !isUltra) {
+      const uploadCount = parseInt(localStorage.getItem("ma_file_upload_count") || "0", 10);
+      if (uploadCount >= 2) {
+        toast("Batas upload tercapai", {
+          description: "Free plan hanya 2x upload file. Upgrade ke Pro untuk unlimited.",
+          action: { label: "Upgrade", onClick: () => navigate("/pricing") },
+        });
+        setUploadedFiles([]);
+        return;
+      }
+      localStorage.setItem("ma_file_upload_count", String(uploadCount + 1));
+    }
+
+    // Vision fallback: if model doesn't support vision, notify + use claude-sonnet-4-5-1m
+    const VISION_MODELS = ["claude-sonnet-4-5-1m", "claude-sonnet-4-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4-8"];
+    const hasImages = files.some(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name));
+    const currentModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+    const modelSupportsVision = VISION_MODELS.includes(currentModel?.id);
+    if (hasImages && !modelSupportsVision) {
+      toast("Model diganti ke Claude Sonnet 4.5", {
+        description: `${currentModel?.name || "Model ini"} tidak support gambar. Otomatis pakai Claude Sonnet 4.5 untuk analisis gambar.`,
+        duration: 4000,
+      });
+    }
     const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
     const fileMeta = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
     // Build user-facing prompt (strip auto-generated prefix, keep user text)
