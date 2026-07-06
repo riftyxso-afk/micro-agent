@@ -513,7 +513,7 @@ export default function ChatInterface() {
       setIsGenerating(false);
       setUploadedFiles([]);
     }
-  }, [autoMode, model, messages, updateMessage, isPro, navigate, user]);
+  }, [autoMode, model, messages, updateMessage, isPro, isUltra, navigate, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendMessage = useCallback(
     (text, attachments = [], searchModePrompt = "", searchModeId = "", modeWebSearch = false, skillSlug = null, effortLevel = "low", _isSeed = false, _comparison = false) => {
