@@ -1,48 +1,72 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { supabase, onAuthChange, getSession, signIn, signUp, signOut } from "@/lib/supabase";
+import { API_BASE_URL } from "@/lib/chatApi";
 
 const GUEST_LIMIT = 10;
 const GUEST_COUNT_KEY = "ma_guest_prompts";
 
 const AuthContext = createContext(null);
 
+async function checkOnboarded(token) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/onboarding/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const d = await res.json();
+    return d.is_onboarded === true;
+  } catch { return true; } // fail open — don't block user
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isOnboarded, setIsOnboarded] = useState(true); // assume true until verified
   const [guestCount, setGuestCount] = useState(() => {
     try { return parseInt(localStorage.getItem(GUEST_COUNT_KEY) || "0", 10); }
     catch { return 0; }
   });
 
   useEffect(() => {
-    getSession().then((s) => {
+    getSession().then(async (s) => {
       setSession(s);
       setUser(s?.user || null);
+      if (s?.access_token) {
+        const onboarded = await checkOnboarded(s.access_token);
+        setIsOnboarded(onboarded);
+      }
       setLoading(false);
     });
     const unsub = onAuthChange((u) => {
       setUser(u);
-      getSession().then(setSession);
-      // Reset guest count on login
+      getSession().then(async (s) => {
+        setSession(s);
+        if (s?.access_token) {
+          const onboarded = await checkOnboarded(s.access_token);
+          setIsOnboarded(onboarded);
+        }
+      });
       if (u) {
         localStorage.removeItem(GUEST_COUNT_KEY);
         setGuestCount(0);
       }
     });
     return unsub;
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email, password) => {
     const data = await signIn(email, password);
     setUser(data.user);
     setSession(data.session);
+    if (data.session?.access_token) {
+      const onboarded = await checkOnboarded(data.session.access_token);
+      setIsOnboarded(onboarded);
+    }
     return data;
   };
 
   const register = async (email, password) => {
     const data = await signUp(email, password);
-    // If email confirmation required, user won't be signed in yet
     return data;
   };
 
@@ -50,9 +74,9 @@ export function AuthProvider({ children }) {
     await signOut();
     setUser(null);
     setSession(null);
+    setIsOnboarded(true);
   };
 
-  // Increment + check. Call once per user-initiated prompt.
   const incrementGuestCount = useCallback(() => {
     if (user) return true;
     const next = guestCount + 1;
@@ -61,7 +85,6 @@ export function AuthProvider({ children }) {
     return next <= GUEST_LIMIT;
   }, [user, guestCount]);
 
-  // Check-only, no increment. Use for auto-triggered sends (seed from navigation).
   const checkGuestAllowed = useCallback(() => {
     if (user) return true;
     return guestCount < GUEST_LIMIT;
@@ -72,7 +95,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, session, loading,
+      user, session, loading, isOnboarded, setIsOnboarded,
       login, register, logout,
       guestCount, guestRemaining, isGuestLimitReached,
       incrementGuestCount, checkGuestAllowed, GUEST_LIMIT,

@@ -2384,6 +2384,14 @@ Facts (one per line):"""
         facts = [line.strip().lstrip("-•*").strip() for line in response_content.split("\n") if line.strip()]
         filtered = [f for f in facts if len(f) > 10 and len(f) < 500]
         logger.info(f"Import extracted {len(filtered)} facts")
+
+        # Fallback: if LLM returned nothing, parse raw content as bullet points
+        if not filtered:
+            logger.warning("LLM returned no facts, falling back to raw content parsing")
+            filtered = [line.strip().lstrip("-•*123456789.").strip()
+                       for line in content.split("\n") if line.strip()]
+            filtered = [f for f in filtered if len(f) > 10 and len(f) < 500][:20]
+
         return filtered
     except Exception as e:
         logger.exception(f"Import extraction failed: {e}")
@@ -4307,6 +4315,107 @@ async def stream_chat_response(payload: ChatStreamRequest, request: Request = No
         trigger_memory_extraction(messages_for_extraction, effective_user_id, session_id=None)
     else:
         logger.info(f"Memory extraction skipped at stream endpoint: has_error={has_error}, effective_user_id={effective_user_id}")
+
+
+# ── Onboarding & Survey ─────────────────────────────────────────────────────
+
+@api_router.get("/onboarding/status")
+async def get_onboarding_status(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    res = supa.table("onboarding_responses").select("user_id,skipped,completed_at").eq("user_id", uid).execute()
+    return JSONResponse({"is_onboarded": bool(res.data)})
+
+
+@api_router.post("/onboarding")
+async def submit_onboarding(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+    skipped = body.get("skipped", False)
+
+    row = {
+        "user_id": uid,
+        "role": body.get("role"),
+        "primary_goal": body.get("primary_goal"),
+        "ai_familiarity": body.get("ai_familiarity"),
+        "language_preference": body.get("language_preference"),
+        "skipped": skipped,
+    }
+    supa.table("onboarding_responses").upsert(row, on_conflict="user_id").execute()
+
+    # Insert structured facts directly into user_memories (no LLM needed)
+    if not skipped:
+        memories = []
+        if body.get("role"):
+            label = {"pelajar": "Pelajar/mahasiswa", "karyawan": "Karyawan", "freelancer": "Freelancer",
+                     "founder": "Founder/pebisnis", "developer": "Developer"}.get(body["role"], body["role"])
+            memories.append({"user_id": uid, "content": f"User adalah {label}", "category": "onboarding_profile"})
+        if body.get("primary_goal"):
+            memories.append({"user_id": uid, "content": f"Tujuan utama memakai Micro Agent: {body['primary_goal']}", "category": "onboarding_profile"})
+        if body.get("ai_familiarity"):
+            memories.append({"user_id": uid, "content": f"Tingkat familiarity dengan AI: {body['ai_familiarity']}", "category": "onboarding_profile"})
+        if body.get("language_preference"):
+            memories.append({"user_id": uid, "content": f"Preferensi bahasa: {body['language_preference']}", "category": "onboarding_profile"})
+        if memories:
+            supa.table("user_memories").insert(memories).execute()
+
+    return JSONResponse({"success": True})
+
+
+@api_router.post("/survey")
+async def submit_survey(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    body = await request.json()
+
+    # Check for dismiss
+    if body.get("dismissed"):
+        supa.table("survey_dismissals").upsert({"user_id": uid}, on_conflict="user_id").execute()
+        return JSONResponse({"success": True})
+
+    row = {
+        "user_id": uid,
+        "satisfaction_score": body.get("satisfaction_score"),
+        "most_used_feature": body.get("most_used_feature"),
+        "pain_points": body.get("pain_points"),
+        "feature_requests": body.get("feature_requests"),
+    }
+    supa.table("survey_responses").insert(row).execute()
+
+    # Optional background extraction from open text
+    open_text = " ".join(filter(None, [body.get("pain_points"), body.get("feature_requests")]))
+    if open_text.strip() and len(open_text.strip()) > 20:
+        async def _extract_survey_memory():
+            prompt = f"""Baca jawaban survey berikut. Kalau ada fakta personal tentang user yang berguna untuk personalisasi AI (misal pekerjaan spesifik, proyek, kebutuhan khusus), ekstrak sebagai fakta singkat. Kalau murni feedback produk tanpa info personal, balas kosong.
+
+Jawaban: {open_text}
+
+Fakta (satu per baris, kosong jika tidak ada):"""
+            facts = await extract_facts_from_text(prompt, model_id="deepseek-v4-flash")
+            if facts:
+                await save_user_memories(uid, facts)
+        asyncio.create_task(_extract_survey_memory())
+
+    return JSONResponse({"success": True})
+
+
+@api_router.get("/survey/status")
+async def get_survey_status(request: Request):
+    if not supa: return _no_supa()
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    dismissed = supa.table("survey_dismissals").select("user_id").eq("user_id", uid).execute()
+    completed = supa.table("survey_responses").select("id").eq("user_id", uid).execute()
+    session_count = supa.table("sessions").select("id", count="exact").eq("user_id", uid).execute()
+    return JSONResponse({
+        "dismissed": bool(dismissed.data),
+        "completed": bool(completed.data),
+        "session_count": session_count.count or 0,
+    })
 
 
 # ── Improve Prompt ─────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { ProjectsDialog } from "@/components/workspace/ProjectsDialog";
 import { MoreDialog } from "@/components/workspace/MoreDialog";
 import { LowTokenPopup } from "@/components/workspace/LowTokenPopup";
 import { RagPanel } from "@/components/workspace/RagPanel";
+import { SurveyModal } from "@/components/workspace/SurveyModal";
 import {
   getModelById,
   DEFAULT_MODEL_ID,
@@ -81,6 +82,7 @@ export default function ChatInterface() {
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragEnabled, setRagEnabled] = useState(true);
   const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [showSurvey, setShowSurvey] = useState(false);
   const deepResearchAbortRef = useRef(null);
 
   const seededRef = useRef(false);
@@ -506,17 +508,15 @@ export default function ChatInterface() {
         return;
       }
       // Token balance check (skip for guest — guest uses prompt count, not tokens)
-      if (user) {
-        const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
-        const isImgReq = isImageRequest(text);
-        const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
-        const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
-        if (tokenBalance !== null && tokenBalance < tokenCost) {
-          toast("Token tidak cukup", {
-            description: `Model ini butuh ${tokenCost} token, kamu punya ${tokenBalance}.`,
-          });
-          return;
-        }
+      const usedModel = autoMode ? getModelById(AUTO_PICKED_MODEL_ID) : model;
+      const isImgReq = isImageRequest(text);
+      const effectiveModel = isImgReq ? IMAGE_MODEL : usedModel;
+      const tokenCost = MODEL_TOKEN_COST[effectiveModel.id] || effectiveModel.credits || 1;
+      if (user && tokenBalance !== null && tokenBalance < tokenCost) {
+        toast("Token tidak cukup", {
+          description: `Model ini butuh ${tokenCost} token, kamu punya ${tokenBalance}.`,
+        });
+        return;
       }
       // If files are attached, route to file analysis
       if (uploadedFiles.length > 0) {
@@ -857,6 +857,19 @@ export default function ChatInterface() {
       })
       .catch(() => {});
   }, [messages, user, sessionId, model, room]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Survey trigger — show after 5th session
+  useEffect(() => {
+    if (!user || !session?.access_token || showSurvey) return;
+    fetch(`${API_BASE_URL}/api/survey/status`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.dismissed && !d.completed && d.session_count >= 5) setShowSurvey(true);
+      })
+      .catch(() => {});
+  }, [user, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save completed messages to Supabase
   useEffect(() => {
@@ -1351,6 +1364,7 @@ export default function ChatInterface() {
       />
       <LowTokenPopup tokenBalance={effectiveTokenBalance} isGuest={!user} />
       <RagPanel open={showRagPanel} onClose={() => setShowRagPanel(false)} />
+      {showSurvey && <SurveyModal session={session} onClose={() => setShowSurvey(false)} />}
     </div>
   );
 }

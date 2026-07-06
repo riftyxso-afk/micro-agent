@@ -36,8 +36,13 @@ export default function HomeWorkspace() {
   const [autoMode, setAutoMode] = useState(initialAutoMode);
   const [composerInitial, setComposerInitial] = useState(initialPrompt);
   const reduceMotion = useReducedMotion();
-  const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount, guestRemaining } = useAuth();
+  const { user, session, isGuestLimitReached, GUEST_LIMIT, incrementGuestCount, guestRemaining, isOnboarded } = useAuth();
   const { plan, isPro, isUltra } = useSubscription();
+
+  // Redirect logged-in users who haven't done onboarding
+  useEffect(() => {
+    if (user && !isOnboarded) navigate("/onboarding", { replace: true });
+  }, [user, isOnboarded, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch token balance
   const [tokenBalance, setTokenBalance] = useState(null);

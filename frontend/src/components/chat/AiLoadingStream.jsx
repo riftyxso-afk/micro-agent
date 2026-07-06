@@ -120,8 +120,6 @@ export const AiLoadingStream = ({
             <span className="text-[12px] font-medium ma-label-shimmer">
               {p.label}
             </span>
-            {/* shimmer bar — all phases */}
-            <span className="ml-1 flex-1 h-2 rounded-full ma-bar-shimmer" />
             {/* Expand/cancel only on last row */}
             {i === activePhases.length - 1 && (
               <>

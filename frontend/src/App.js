@@ -10,7 +10,6 @@ import ProfilePage from "@/pages/ProfilePage";
 import IntroducingOpusPage from "@/pages/IntroducingOpusPage";
 import IntroducingCLIPage from "@/pages/IntroducingCLIPage";
 import SkillsPage from "@/pages/SkillsPage";
-// Studio and Supercomputer components removed - to be rebuilt from scratch
 import AuthPage from "@/pages/AuthPage";
 import PaymentPage from "@/pages/PaymentPage";
 import PaymentSuccessPage from "@/pages/PaymentSuccessPage";
@@ -21,6 +20,7 @@ import TopUpPage from "@/pages/TopUpPage";
 import TopUpSuccessPage from "@/pages/TopUpSuccessPage";
 import BuilderPage from "@/pages/BuilderPage";
 import ProjectWorkspacePage from "@/pages/ProjectWorkspacePage";
+import OnboardingPage from "@/pages/OnboardingPage";
 import { AuthProvider } from "@/lib/AuthContext";
 
 function App() {
@@ -50,6 +50,7 @@ function App() {
           <Route path="/topup/success" element={<TopUpSuccessPage />} />
           <Route path="/builder" element={<BuilderPage />} />
           <Route path="/project/:id" element={<ProjectWorkspacePage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Circle, Chrome, Github, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Circle, Chrome, Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -147,13 +147,23 @@ export default function AuthPage() {
             </div>
           )}
 
-          {/* Social buttons (register only) */}
-          {tab === "register" && (
+          {/* Social buttons */}
+          {tab !== "forgot" && (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <SocialButton icon={Chrome} label="Google" />
-                <SocialButton icon={Github} label="GitHub" />
-              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!supabase) return;
+                  await supabase.auth.signInWithOAuth({
+                    provider: "google",
+                    options: { redirectTo: `${window.location.origin}/home` },
+                  });
+                }}
+                className="flex items-center justify-center gap-2.5 h-11 w-full bg-black border border-white/10 rounded-xl hover:bg-white/5 transition-colors text-white text-sm font-medium"
+              >
+                <Chrome size={16} strokeWidth={1.75} />
+                Continue with Google
+              </button>
               <div className="relative flex items-center">
                 <div className="flex-1 border-t border-white/10" />
                 <span className="bg-black px-4 text-xs font-medium text-white/40 uppercase tracking-widest">Or</span>
