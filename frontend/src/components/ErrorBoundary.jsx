@@ -3,7 +3,7 @@ import { Component } from "react";
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorInfo: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -12,14 +12,29 @@ export class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+    this.setState({ errorInfo });
+    // Also log to window for easy debugging on mobile
+    window.__ERROR_BOUNDARY_ERROR = {
+      message: error?.message,
+      stack: error?.stack,
+      componentStack: errorInfo?.componentStack,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+    };
   }
 
   handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, errorInfo: null });
   };
 
   render() {
     if (this.state.hasError) {
+      const errorMsg = this.state.error?.message || "Unknown error";
+      const componentStack = this.state.errorInfo?.componentStack || "";
+      // Extract first meaningful line from component stack
+      const stackLines = componentStack.split("\n").filter(l => l.trim());
+      const firstComponent = stackLines.length > 1 ? stackLines[1]?.trim() : "";
+
       return (
         <div
           style={{
@@ -36,13 +51,14 @@ export class ErrorBoundary extends Component {
         >
           <div
             style={{
-              maxWidth: "400px",
+              maxWidth: "420px",
               textAlign: "center",
               background: "#fff",
               borderRadius: "20px",
               padding: "32px 24px",
               boxShadow: "0 1px 3px rgba(17,24,39,0.06)",
               border: "1px solid #E5E7EB",
+              width: "100%",
             }}
           >
             <div
@@ -74,12 +90,51 @@ export class ErrorBoundary extends Component {
               style={{
                 fontSize: "14px",
                 color: "#6B7280",
-                marginBottom: "20px",
+                marginBottom: "16px",
                 lineHeight: 1.5,
               }}
             >
               An unexpected error occurred. Please try refreshing the page.
             </p>
+            {/* Show error details for debugging on mobile */}
+            <details
+              style={{
+                marginBottom: "16px",
+                textAlign: "left",
+                width: "100%",
+              }}
+            >
+              <summary
+                style={{
+                  fontSize: "11px",
+                  color: "#9CA3AF",
+                  cursor: "pointer",
+                  padding: "4px 0",
+                  userSelect: "none",
+                }}
+              >
+                Tap to see error details
+              </summary>
+              <div
+                style={{
+                  marginTop: "8px",
+                  padding: "10px",
+                  background: "#FEF2F2",
+                  borderRadius: "8px",
+                  fontSize: "11px",
+                  color: "#991B1B",
+                  lineHeight: 1.5,
+                  wordBreak: "break-word",
+                  maxHeight: "120px",
+                  overflow: "auto",
+                }}
+              >
+                <strong>Error:</strong> {errorMsg}
+                {firstComponent && (
+                  <><br /><strong>At:</strong> {firstComponent}</>
+                )}
+              </div>
+            </details>
             <button
               onClick={this.handleRetry}
               style={{
