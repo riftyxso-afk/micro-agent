@@ -40,14 +40,16 @@ export function AuthProvider({ children }) {
     const unsub = onAuthChange((u) => {
       setUser(u);
       if (u) {
-        setLoading(true); // Block render while checking onboarding
+        // NOTE: Do NOT set loading=true here. The login() function already
+        // handles session + onboarding check. Setting loading here causes a
+        // race condition — two parallel async flows fight to set state,
+        // and the loading overlay blanks the page on mobile.
         getSession().then(async (s) => {
           setSession(s);
           if (s?.access_token) {
             const onboarded = await checkOnboarded(s.access_token);
             setIsOnboarded(onboarded);
           }
-          setLoading(false);
         });
         localStorage.removeItem(GUEST_COUNT_KEY);
         setGuestCount(0);
@@ -60,10 +62,8 @@ export function AuthProvider({ children }) {
     const data = await signIn(email, password);
     setUser(data.user);
     setSession(data.session);
-    if (data.session?.access_token) {
-      const onboarded = await checkOnboarded(data.session.access_token);
-      setIsOnboarded(onboarded);
-    }
+    // NOTE: onAuthChange callback already handles checkOnboarded() —
+    // no need to duplicate the API call here.
     return data;
   };
 
