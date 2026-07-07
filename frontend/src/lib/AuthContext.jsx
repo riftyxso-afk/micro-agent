@@ -51,7 +51,7 @@ export function AuthProvider({ children }) {
             setIsOnboarded(onboarded);
           }
         });
-        localStorage.removeItem(GUEST_COUNT_KEY);
+        try { localStorage.removeItem(GUEST_COUNT_KEY); } catch {}
         setGuestCount(0);
       }
     });

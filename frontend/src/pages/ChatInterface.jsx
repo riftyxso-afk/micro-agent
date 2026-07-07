@@ -501,7 +501,8 @@ export default function ChatInterface() {
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
     // Free users: max 2 file uploads
     if (!isPro && !isUltra) {
-      const uploadCount = parseInt(localStorage.getItem("ma_file_upload_count") || "0", 10);
+      let uploadCount = 0;
+      try { uploadCount = parseInt(localStorage.getItem("ma_file_upload_count") || "0", 10); } catch {}
       if (uploadCount >= 2) {
         toast("Batas upload tercapai", {
           description: "Free plan hanya 2x upload file. Upgrade ke Pro untuk unlimited.",
@@ -510,7 +511,7 @@ export default function ChatInterface() {
         setUploadedFiles([]);
         return;
       }
-      localStorage.setItem("ma_file_upload_count", String(uploadCount + 1));
+      try { localStorage.setItem("ma_file_upload_count", String(uploadCount + 1)); } catch {}
     }
 
     // Vision fallback: if model doesn't support vision, notify + use claude-sonnet-4-5-1m
@@ -1315,6 +1316,7 @@ export default function ChatInterface() {
                       prompt={m.codeGenPrompt}
                       userId={user?.id || "anonymous"}
                       modelId={model?.id || "deepseek-v4-flash"}
+                      chatHistory={toProviderMessages(messages)}
                       onComplete={({ filename, downloadUrl, codeContent }) => {
                         updateMessage(m.id, {
                           state: "completed",

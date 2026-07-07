@@ -9,15 +9,19 @@ export function CLIBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const dismissed = localStorage.getItem(STORAGE_KEY);
-    if (!dismissed) setVisible(true);
+    try {
+      const dismissed = localStorage.getItem(STORAGE_KEY);
+      if (!dismissed) setVisible(true);
+    } catch {
+      setVisible(true);
+    }
   }, []);
 
   if (!visible) return null;
 
   const dismiss = () => {
     setVisible(false);
-    localStorage.setItem(STORAGE_KEY, "1");
+    try { localStorage.setItem(STORAGE_KEY, "1"); } catch {}
   };
 
   return (

@@ -3,8 +3,25 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || "";
 
+// Safe storage adapter — wraps localStorage in try/catch to handle
+// iOS Safari SecurityError ("The operation is insecure") in Private
+// Browsing mode or when storage is blocked.
+const safeStorage = {
+  getItem: (key) => {
+    try { return localStorage.getItem(key); } catch { return null; }
+  },
+  setItem: (key, value) => {
+    try { localStorage.setItem(key, value); } catch {}
+  },
+  removeItem: (key) => {
+    try { localStorage.removeItem(key); } catch {}
+  },
+};
+
 export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { storage: safeStorage },
+    })
   : null;
 
 export const isSupabaseEnabled = !!supabase;
