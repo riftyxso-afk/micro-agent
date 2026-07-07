@@ -162,11 +162,15 @@ SUMODOP_DEFAULT_MODEL = env_str("SUMODOP_DEFAULT_MODEL", "claude-sonnet-5")
 SUMODOP_MODEL_IDS = {
     "claude-fable-5",
     "claude-sonnet-5",
+    "MiniMax-M2.7-highspeed",
+    "mimo-v2.5-pro",
 }
 
 SUMODOP_MODEL_MAP = {
     "claude-fable-5": "claude-fable-5",
     "claude-sonnet-5": "claude-sonnet-5",
+    "MiniMax-M2.7-highspeed": "MiniMax-M2.7-highspeed",
+    "mimo-v2.5-pro": "mimo-v2.5-pro",
 }
 
 # ── Token cost per model ────────────────────────────────────────────────────────
@@ -189,6 +193,8 @@ MODEL_TOKEN_COST = {
     # SumoPod AI models
     "claude-fable-5":       8,
     "claude-sonnet-5":      4,
+    "MiniMax-M2.7-highspeed": 2,
+    "mimo-v2.5-pro":        3,
 }
 
 # Also map frontend model IDs (with hyphens) to costs
@@ -202,6 +208,8 @@ _TOKEN_COST_ALIASES = {
     "flux-2-klein-4b":      2,
     "claude-fable-5":       8,
     "claude-sonnet-5":      4,
+    "MiniMax-M2.7-highspeed": 2,
+    "mimo-v2.5-pro":        3,
 }
 
 

@@ -56,6 +56,8 @@ export const MODEL_TOKEN_COST = {
   "open-agentic":         1,
   "claude-fable-5":       8,
   "claude-sonnet-5":      4,
+  "MiniMax-M2.7-highspeed": 2,
+  "mimo-v2.5-pro":        3,
 };
 
 export const IMAGE_MODEL = {
@@ -148,6 +150,24 @@ export const MODELS = [
     categories: ["reasoning", "writing", "coding"],
     isExpensive: true,
     requiresPro: true,
+  },
+  {
+    id: "MiniMax-M2.7-highspeed",
+    name: "MiniMax M2.7 Highspeed",
+    shortName: "MiniMax M2.7",
+    credits: 2,
+    color: "#8B5CF6",
+    tag: "Fast reasoning — SumoPod AI",
+    categories: ["reasoning", "writing", "coding"],
+  },
+  {
+    id: "mimo-v2.5-pro",
+    name: "MiMo v2.5 Pro",
+    shortName: "MiMo Pro",
+    credits: 3,
+    color: "#EC4899",
+    tag: "Advanced multimodal — SumoPod AI",
+    categories: ["reasoning", "writing", "coding"],
   },
 ];
 
