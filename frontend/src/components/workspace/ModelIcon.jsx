@@ -29,6 +29,8 @@ const MODEL_ICON_SRC = {
   "open-agentic": "/svg/gemini.svg",
   "claude-sonnet-5": "/svg/claude-ai-icon.svg",
   "claude-fable-5": "/svg/claude-ai-icon.svg",
+  "MiniMax-M2.7-highspeed": "/svg/minimax-color.svg",
+  "mimo-v2.5-pro": "/svg/mimo.svg",
 };
 
 export const ModelIcon = ({ model, size = 24 }) => {
