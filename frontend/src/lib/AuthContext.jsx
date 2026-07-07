@@ -35,18 +35,20 @@ export function AuthProvider({ children }) {
         const onboarded = await checkOnboarded(s.access_token);
         setIsOnboarded(onboarded);
       }
-      setLoading(false);
+      setLoading(false); // Only after onboarding check completes
     });
     const unsub = onAuthChange((u) => {
       setUser(u);
-      getSession().then(async (s) => {
-        setSession(s);
-        if (s?.access_token) {
-          const onboarded = await checkOnboarded(s.access_token);
-          setIsOnboarded(onboarded);
-        }
-      });
       if (u) {
+        setLoading(true); // Block render while checking onboarding
+        getSession().then(async (s) => {
+          setSession(s);
+          if (s?.access_token) {
+            const onboarded = await checkOnboarded(s.access_token);
+            setIsOnboarded(onboarded);
+          }
+          setLoading(false);
+        });
         localStorage.removeItem(GUEST_COUNT_KEY);
         setGuestCount(0);
       }
