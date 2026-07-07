@@ -8,9 +8,10 @@ export const LowTokenPopup = ({ tokenBalance, onDismiss, isGuest }) => {
   const navigate = useNavigate();
   const { openAuth } = useAuthModal();
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(
-    () => sessionStorage.getItem("low_token_dismissed") === "1"
-  );
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem("low_token_dismissed") === "1"; }
+    catch { return false; }
+  });
 
   useEffect(() => {
     if (dismissed) return;
