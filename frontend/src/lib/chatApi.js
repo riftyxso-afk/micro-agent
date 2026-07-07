@@ -208,6 +208,7 @@ export function streamChat({
   effortLevel = "low",
   comparison = false,
   userId = null,
+  sessionId = null,
   authToken = null,
   signal,
   onMeta,
@@ -251,6 +252,7 @@ export function streamChat({
       effort_level: effortLevel,
       comparison: comparison,
       user_id: userId || null,
+      session_id: sessionId || null,
     }),
     signal,
   })

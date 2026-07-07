@@ -1,5 +1,52 @@
 import { Component } from "react";
 
+// Collect recent console messages (warn/error) before a crash
+const MAX_LOGS = 20;
+let consoleLogs = [];
+let interceptorsInstalled = false;
+
+function installConsoleInterceptors() {
+  if (interceptorsInstalled || typeof window === "undefined") return;
+  interceptorsInstalled = true;
+
+  const origWarn = console.warn;
+  const origError = console.error;
+
+  console.warn = (...args) => {
+    try {
+      consoleLogs.push({ type: "warn", time: new Date().toLocaleTimeString(), msg: args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ") });
+      if (consoleLogs.length > MAX_LOGS) consoleLogs = consoleLogs.slice(-MAX_LOGS);
+    } catch {}
+    origWarn.apply(console, args);
+  };
+
+  console.error = (...args) => {
+    try {
+      consoleLogs.push({ type: "error", time: new Date().toLocaleTimeString(), msg: args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ") });
+      if (consoleLogs.length > MAX_LOGS) consoleLogs = consoleLogs.slice(-MAX_LOGS);
+    } catch {}
+    origError.apply(console, args);
+  };
+
+  // Also capture unhandled errors/rejections
+  window.addEventListener("error", (e) => {
+    try {
+      consoleLogs.push({ type: "error", time: new Date().toLocaleTimeString(), msg: `[Unhandled] ${e.message || "Unknown"} at ${e.filename || ""}:${e.lineno || ""}:${e.colno || ""}` });
+    } catch {}
+  });
+
+  window.addEventListener("unhandledrejection", (e) => {
+    try {
+      consoleLogs.push({ type: "error", time: new Date().toLocaleTimeString(), msg: `[Unhandled Promise] ${e.reason?.message || e.reason || "Unknown"}` });
+    } catch {}
+  });
+}
+
+// Install immediately so we capture logs from app startup
+if (typeof window !== "undefined") {
+  installConsoleInterceptors();
+}
+
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -13,27 +60,34 @@ export class ErrorBoundary extends Component {
   componentDidCatch(error, errorInfo) {
     console.error("[ErrorBoundary] Caught error:", error, errorInfo);
     this.setState({ errorInfo });
+    // Capture the crash error itself
+    try {
+      consoleLogs.push({ type: "crash", time: new Date().toLocaleTimeString(), msg: `[CRASH] ${error?.message || "Unknown"}` });
+    } catch {}
     // Also log to window for easy debugging on mobile
     window.__ERROR_BOUNDARY_ERROR = {
       message: error?.message,
       stack: error?.stack,
       componentStack: errorInfo?.componentStack,
+      consoleLogs: consoleLogs.slice(),
       timestamp: new Date().toISOString(),
       userAgent: navigator.userAgent,
     };
   }
 
   handleRetry = () => {
+    consoleLogs = [];
     this.setState({ hasError: false, error: null, errorInfo: null });
   };
 
   render() {
     if (this.state.hasError) {
       const errorMsg = this.state.error?.message || "Unknown error";
+      const errorStack = this.state.error?.stack || "";
       const componentStack = this.state.errorInfo?.componentStack || "";
-      // Extract first meaningful line from component stack
       const stackLines = componentStack.split("\n").filter(l => l.trim());
       const firstComponent = stackLines.length > 1 ? stackLines[1]?.trim() : "";
+      const recentLogs = consoleLogs.slice(-10);
 
       return (
         <div
@@ -51,7 +105,7 @@ export class ErrorBoundary extends Component {
         >
           <div
             style={{
-              maxWidth: "420px",
+              maxWidth: "480px",
               textAlign: "center",
               background: "#fff",
               borderRadius: "20px",
@@ -96,45 +150,114 @@ export class ErrorBoundary extends Component {
             >
               An unexpected error occurred. Please try refreshing the page.
             </p>
-            {/* Show error details for debugging on mobile */}
+
+            {/* Error + Stack */}
             <details
-              style={{
-                marginBottom: "16px",
-                textAlign: "left",
-                width: "100%",
-              }}
+              open
+              style={{ marginBottom: "12px", textAlign: "left", width: "100%" }}
             >
               <summary
                 style={{
-                  fontSize: "11px",
-                  color: "#9CA3AF",
-                  cursor: "pointer",
-                  padding: "4px 0",
-                  userSelect: "none",
+                  fontSize: "11px", color: "#9CA3AF", cursor: "pointer",
+                  padding: "4px 0", userSelect: "none",
                 }}
               >
-                Tap to see error details
+                Error Details
               </summary>
               <div
                 style={{
-                  marginTop: "8px",
-                  padding: "10px",
-                  background: "#FEF2F2",
-                  borderRadius: "8px",
-                  fontSize: "11px",
-                  color: "#991B1B",
-                  lineHeight: 1.5,
-                  wordBreak: "break-word",
-                  maxHeight: "120px",
-                  overflow: "auto",
+                  marginTop: "6px", padding: "10px",
+                  background: "#FEF2F2", borderRadius: "8px",
+                  fontSize: "11px", color: "#991B1B",
+                  lineHeight: 1.5, wordBreak: "break-word",
+                  maxHeight: "100px", overflow: "auto",
+                  fontFamily: "monospace",
                 }}
               >
-                <strong>Error:</strong> {errorMsg}
+                {errorMsg}
                 {firstComponent && (
-                  <><br /><strong>At:</strong> {firstComponent}</>
+                  <><br /><span style={{ color: "#B45309" }}>at {firstComponent}</span></>
                 )}
               </div>
             </details>
+
+            {/* Component Stack */}
+            {stackLines.length > 2 && (
+              <details
+                style={{ marginBottom: "12px", textAlign: "left", width: "100%" }}
+              >
+                <summary
+                  style={{
+                    fontSize: "11px", color: "#9CA3AF", cursor: "pointer",
+                    padding: "4px 0", userSelect: "none",
+                  }}
+                >
+                  Component Stack ({stackLines.length - 1} frames)
+                </summary>
+                <div
+                  style={{
+                    marginTop: "6px", padding: "10px",
+                    background: "#F3F4F6", borderRadius: "8px",
+                    fontSize: "10px", color: "#374151",
+                    lineHeight: 1.6, wordBreak: "break-word",
+                    maxHeight: "100px", overflow: "auto",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {stackLines.map((line, i) => (
+                    <div key={i} style={{ color: i === 0 ? "#991B1B" : undefined }}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Console Logs */}
+            {recentLogs.length > 0 && (
+              <details
+                style={{ marginBottom: "12px", textAlign: "left", width: "100%" }}
+              >
+                <summary
+                  style={{
+                    fontSize: "11px", color: "#9CA3AF", cursor: "pointer",
+                    padding: "4px 0", userSelect: "none",
+                  }}
+                >
+                  Console ({recentLogs.length} messages)
+                </summary>
+                <div
+                  style={{
+                    marginTop: "6px", padding: "10px",
+                    background: "#111111", borderRadius: "8px",
+                    fontSize: "10px", color: "#D1D5DB",
+                    lineHeight: 1.6, wordBreak: "break-word",
+                    maxHeight: "160px", overflow: "auto",
+                    fontFamily: "monospace",
+                    textAlign: "left",
+                  }}
+                >
+                  {recentLogs.map((log, i) => (
+                    <div key={i} style={{ color: log.type === "error" || log.type === "crash" ? "#FCA5A5" : log.type === "warn" ? "#FDE68A" : "#D1D5DB" }}>
+                      <span style={{ opacity: 0.5 }}>[{log.time}]</span>{" "}
+                      <span style={{ color: log.type === "error" || log.type === "crash" ? "#EF4444" : log.type === "warn" ? "#F59E0B" : "#6B7280" }}>
+                        {log.type === "crash" ? "💥" : log.type === "error" ? "✖" : "⚠"}
+                      </span>{" "}
+                      {log.msg}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* User Agent */}
+            <div
+              style={{
+                marginBottom: "16px", fontSize: "9px", color: "#D1D5DB",
+                wordBreak: "break-all", lineHeight: 1.4,
+              }}
+            >
+              {navigator.userAgent}
+            </div>
+
             <button
               onClick={this.handleRetry}
               style={{

@@ -394,6 +394,7 @@ class ChatStreamRequest(BaseModel):
     effort_level: str = "low"
     comparison: bool = False
     user_id: Optional[str] = None
+    session_id: Optional[str] = None
 
     @field_validator("model_id", "room", mode="before")
     @classmethod
@@ -535,6 +536,67 @@ def _get_artifact_content(file_reference: str) -> str:
     return _artifact_store.get(file_reference, "")
 
 
+CONTENT_SIZE_THRESHOLD = 100 * 1024  # 100KB — store in Supabase Storage above this
+
+
+async def _persist_artifact(chat_id: str, file_name: str, file_type: str, content: str,
+                            created_by_tool: str = "write_file", description: str = "",
+                            message_id: str = None, user_id: str = "anonymous") -> dict:
+    """Persist an artifact to the database. Creates/updates artifact row and version row.
+    Returns artifact metadata for frontend."""
+    if not supa or not chat_id:
+        return {"artifact_id": None, "version": 1, "file_name": file_name, "file_type": file_type}
+
+    try:
+        # Upsert artifact identity row (one per file_name per chat)
+        existing = supa.table("artifacts").select("id").eq("chat_id", chat_id).eq("file_name", file_name).limit(1).execute()
+        if existing.data:
+            artifact_id = existing.data[0]["id"]
+            # Bump version
+            ver_resp = supa.table("artifact_versions").select("version_number").eq("artifact_id", artifact_id).order("version_number", desc=True).limit(1).execute()
+            next_version = (ver_resp.data[0]["version_number"] + 1) if ver_resp.data else 1
+            supa.table("artifacts").update({"updated_at": "now()"}).eq("id", artifact_id).execute()
+        else:
+            artifact_id = str(__import__("uuid").uuid4())
+            next_version = 1
+            supa.table("artifacts").insert({
+                "id": artifact_id,
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "file_name": file_name,
+                "file_type": file_type,
+                "description": description,
+            }).execute()
+
+        # Storage for large content
+        storage_path = None
+        stored_content = content
+        if len(content.encode("utf-8")) > CONTENT_SIZE_THRESHOLD:
+            storage_result = await _save_artifact(file_name, file_type, content, user_id)
+            storage_path = storage_result.get("path")
+            stored_content = content[:5000]  # keep snippet for quick reads
+
+        supa.table("artifact_versions").insert({
+            "artifact_id": artifact_id,
+            "version_number": next_version,
+            "content": stored_content,
+            "storage_path": storage_path,
+            "created_by_tool": created_by_tool,
+        }).execute()
+
+        logger.info(f"Persisted artifact: {file_name} v{next_version} for chat {chat_id}")
+        return {
+            "artifact_id": artifact_id,
+            "version": next_version,
+            "file_name": file_name,
+            "file_type": file_type,
+            "content": content,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to persist artifact: {e}")
+        return {"artifact_id": None, "version": 1, "file_name": file_name, "file_type": file_type, "content": content}
+
+
 async def _save_artifact(file_name: str, file_type: str, content: str, user_id: str = "anonymous") -> dict:
     """Save file content to Supabase Storage and return artifact info."""
     if not supa:
@@ -552,7 +614,7 @@ async def _save_artifact(file_name: str, file_type: str, content: str, user_id: 
         return {"file_name": file_name, "file_type": file_type, "url": None}
 
 
-def _handle_write_file(tool_data: dict):
+def _handle_write_file(tool_data: dict, chat_id: str = None, user_id: str = "anonymous"):
     """Yield SSE events for a completed write_file tool call."""
     try:
         tool_input = json.loads(tool_data.get("input_json", "{}"))
@@ -575,16 +637,32 @@ def _handle_write_file(tool_data: dict):
     # Store in memory
     _artifact_store[file_name] = content
 
+    # Persist to database (async in sync context — fire and forget via loop)
+    persist_result = {}
+    if chat_id:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            persist_result = loop.run_until_complete(
+                _persist_artifact(chat_id, file_name, file_type, content, "write_file", description, user_id=user_id)
+            )
+        except Exception as e:
+            logger.warning(f"Artifact persist failed: {e}")
+        finally:
+            loop.close()
+
     yield sse("artifact", {
         "file_name": file_name,
         "file_type": file_type,
         "url": None,
         "description": description,
         "content": content[:50000],
+        "artifact_id": persist_result.get("artifact_id"),
+        "version": persist_result.get("version", 1),
     })
 
 
-def _handle_edit_file(tool_data: dict):
+def _handle_edit_file(tool_data: dict, chat_id: str = None, user_id: str = "anonymous"):
     """Yield SSE events for edit_file tool call."""
     try:
         tool_input = json.loads(tool_data.get("input_json", "{}"))
@@ -608,12 +686,25 @@ def _handle_edit_file(tool_data: dict):
     updated = content.replace(old_content, new_content, 1)
     _artifact_store[file_ref] = updated
 
-    # Save to storage
-    import asyncio
-    loop = asyncio.new_event_loop()
+    # Persist new version to database
     file_type = file_ref.rsplit(".", 1)[-1] if "." in file_ref else "text"
-    loop.run_until_complete(_save_artifact(file_ref, file_type, updated))
-    loop.close()
+    persist_result = {}
+    if chat_id:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            persist_result = loop.run_until_complete(
+                _persist_artifact(chat_id, file_ref, file_type, updated, "edit_file", f"Updated {file_ref}", user_id=user_id)
+            )
+        except Exception as e:
+            logger.warning(f"Artifact persist failed: {e}")
+        finally:
+            loop.close()
+    else:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(_save_artifact(file_ref, file_type, updated))
+        loop.close()
 
     yield sse("artifact", {
         "file_name": file_ref,
@@ -621,6 +712,8 @@ def _handle_edit_file(tool_data: dict):
         "url": None,
         "description": f"Updated {file_ref}",
         "content": updated[:50000],
+        "artifact_id": persist_result.get("artifact_id"),
+        "version": persist_result.get("version", 1),
     })
 
 
@@ -1861,6 +1954,77 @@ async def save_messages(session_id: str, request: Request):
     return JSONResponse({"saved": len(res.data)})
 
 
+@api_router.get("/sessions/{session_id}/artifacts")
+async def get_session_artifacts(session_id: str, request: Request):
+    """Fetch all artifacts for a chat session (with latest version content)."""
+    if not supa: return JSONResponse({"artifacts": []})
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    sess = supa.table("sessions").select("id").eq("id", session_id).eq("user_id", uid).execute()
+    if not sess.data: return JSONResponse({"error": "Session not found"}, status_code=404)
+
+    artifacts_resp = supa.table("artifacts").select("*").eq("chat_id", session_id).order("created_at").execute()
+    result = []
+    for art in (artifacts_resp.data or []):
+        # Get latest version
+        ver_resp = supa.table("artifact_versions").select("*").eq("artifact_id", art["id"]).order("version_number", desc=True).limit(1).execute()
+        latest_ver = ver_resp.data[0] if ver_resp.data else None
+        content = latest_ver.get("content", "") if latest_ver else ""
+        # Fetch full content from storage if truncated
+        storage_path = latest_ver.get("storage_path") if latest_ver else None
+        if storage_path and len(content) < 5000:
+            try:
+                bucket = supa.storage.from_("chat-files")
+                full_content = bucket.download(storage_path).decode("utf-8")
+                content = full_content
+            except Exception:
+                pass
+        result.append({
+            "id": art["id"],
+            "file_name": art["file_name"],
+            "file_type": art["file_type"],
+            "description": art.get("description", ""),
+            "content": content,
+            "version": latest_ver.get("version_number", 1) if latest_ver else 1,
+            "created_at": art["created_at"],
+        })
+    return JSONResponse({"artifacts": result})
+
+
+@api_router.get("/artifacts/{artifact_id}/versions")
+async def get_artifact_versions(artifact_id: str, request: Request):
+    """Fetch all versions of an artifact."""
+    if not supa: return JSONResponse({"versions": []})
+    uid = _get_user_id(request)
+    if not uid: return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    # Verify ownership via artifact -> session -> user
+    art = supa.table("artifacts").select("id, chat_id").eq("id", artifact_id).limit(1).execute()
+    if not art.data: return JSONResponse({"error": "Not found"}, status_code=404)
+    sess = supa.table("sessions").select("id").eq("id", art.data[0]["chat_id"]).eq("user_id", uid).execute()
+    if not sess.data: return JSONResponse({"error": "Unauthorized"}, status_code=403)
+
+    ver_resp = supa.table("artifact_versions").select("*").eq("artifact_id", artifact_id).order("version_number", desc=True).execute()
+    versions = []
+    for v in (ver_resp.data or []):
+        content = v.get("content", "")
+        storage_path = v.get("storage_path")
+        if storage_path and len(content) < 5000:
+            try:
+                bucket = supa.storage.from_("chat-files")
+                content = bucket.download(storage_path).decode("utf-8")
+            except Exception:
+                pass
+        versions.append({
+            "id": v["id"],
+            "version_number": v["version_number"],
+            "content": content,
+            "created_by_tool": v["created_by_tool"],
+            "created_at": v["created_at"],
+        })
+    return JSONResponse({"versions": versions})
+
+
 @api_router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, request: Request):
     if not supa: return _no_supa()
@@ -2914,6 +3078,22 @@ PENTING — ATURAN WEB SEARCH:
 Ketika informasi dari web dibutuhkan, sistem akan secara otomatis mencari informasi sebelum menjawab.
 Jangan pernah menggunakan format [Tool: ...] atau tag tool lainnya dalam jawabanmu — cukup berikan jawaban langsung berdasarkan informasi yang tersedia.
 Jika kamu tidak yakin dengan jawaban, silakan langsung menjawab dengan pengetahuan yang kamu miliki.
+
+Saat membuat query untuk web_search tool, WAJIB pertimbangkan topik yang sedang dibahas di percakapan sebelumnya.
+Contoh: jika user sebelumnya bahas 'teori bumi datar', lalu minta 'cari info terbaru', query harus 'teori bumi datar info terbaru' bukan hanya 'info terbaru'.
+"""
+
+    # File context instruction
+    file_context_instruction = ""
+    if _artifact_store:
+        available_files = list(_artifact_store.keys())
+        file_context_instruction = f"""
+
+FILE YANG TERSEDIA:
+File berikut sudah di-upload dan tersimpan, bisa dibaca ulang dengan read_file tool:
+{', '.join(available_files)}
+
+Jika user minta 'buatkan dokumen berdasarkan file tadi' atau referensi implisit ke file yang sudah di-upload, gunakan read_file tool untuk akses content aslinya.
 """
 
     # Layer B: Inject user memories into system prompt
@@ -3025,6 +3205,7 @@ Jika kamu tidak yakin dengan jawaban, silakan langsung menjawab dengan pengetahu
             + effort_block
             + memory_block
             + auto_search_instruction
+            + file_context_instruction
             + web_line
         ),
     }
@@ -3068,6 +3249,8 @@ def get_model_specific_config(model_id: str, effort_level: str, has_web_context:
 
 
 def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterator[str]:
+    _chat_id = getattr(payload, 'session_id', None)
+    _user_id = getattr(payload, 'user_id', None) or "anonymous"
     if not has_user_content(payload.messages):
         yield sse("error", {"message": "Harap kirim pesan yang tidak kosong."})
         return
@@ -3149,7 +3332,7 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                     # Process any completed tool calls
                     for tool_id, tool_data in _tool_calls.items():
                         if tool_data.get("name") == "write_file":
-                            yield from _handle_write_file(tool_data)
+                            yield from _handle_write_file(tool_data, chat_id=_chat_id, user_id=_user_id)
                     yield sse("done", {"status": "completed"})
                     return
                 try:
@@ -3191,9 +3374,9 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 if choice.get("finish_reason") == "tool_calls":
                     # Process all accumulated tool calls
                     _tool_handlers = {
-                        "write_file": _handle_write_file,
+                        "write_file": lambda td: _handle_write_file(td, chat_id=_chat_id, user_id=_user_id),
                         "read_file": _handle_read_file_tool,
-                        "edit_file": _handle_edit_file,
+                        "edit_file": lambda td: _handle_edit_file(td, chat_id=_chat_id, user_id=_user_id),
                         "web_search": _handle_web_search_tool,
                         "web_fetch": _handle_web_fetch_tool,
                         "execute_code": _handle_execute_code,
@@ -3955,6 +4138,8 @@ Rules:
 3. Save file in current directory (os.getcwd()) with Indonesian filename
 4. After closing ```, write EXACTLY: OUTPUT_FILE: namafile.ext
 5. Do NOT add any explanation, just code block then OUTPUT_FILE line
+6. IMPORTANT: Use the conversation context above to understand what content to include. If the user references a previously uploaded/analyzed file, the full content is available in the chat history above — incorporate that data into the generated document.
+7. If generating from a previous analysis, use the actual data/content from the conversation, NOT generic placeholder content.
 
 Example output:
 ```python
@@ -4015,6 +4200,7 @@ async def generate_document_stream_endpoint(request: Request):
     prompt = body.get("prompt", "")
     user_id = body.get("user_id", "anonymous")
     model_id = body.get("model_id", "claude-sonnet-4.5-1m")
+    chat_history = body.get("chat_history", [])  # BUGFIX: Accept conversation history
 
     if not prompt:
         return JSONResponse({"error": "prompt required"}, status_code=400)
@@ -4026,7 +4212,7 @@ async def generate_document_stream_endpoint(request: Request):
     async def safe_generator():
         async with _doc_gen_semaphore:
             try:
-                async for chunk in _stream_doc_generation(prompt, user_id, model_id, gen_id, cancel_event):
+                async for chunk in _stream_doc_generation(prompt, user_id, model_id, gen_id, cancel_event, chat_history):
                     yield chunk
             except Exception as e:
                 logger.error(f"Stream generator error: {e}")
@@ -4050,8 +4236,10 @@ async def generate_document_stream_endpoint(request: Request):
     )
 
 
-async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "deepseek-v4-flash", gen_id: str = "", cancel_event: asyncio.Event = None):
+async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "deepseek-v4-flash", gen_id: str = "", cancel_event: asyncio.Event = None, chat_history: list = None):
     """Generator that streams SSE events for document generation."""
+    if chat_history is None:
+        chat_history = []
     import httpx
     import re as _re
 
@@ -4076,12 +4264,22 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    # BUGFIX: Include recent conversation history for context
+    messages = [{"role": "system", "content": DOC_GEN_SYSTEM}]
+
+    # Add last 3-5 turns from chat history (filter to avoid huge context)
+    if chat_history:
+        recent_history = chat_history[-6:]  # last 3 exchanges (user+assistant pairs)
+        for msg in recent_history:
+            if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Add current prompt as final user message
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": resolved_model,
-        "messages": [
-            {"role": "system", "content": DOC_GEN_SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "max_tokens": 8192,
         "temperature": 0.3,
         "stream": True,
@@ -4201,7 +4399,7 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(patched_code)
 
-        logger.info(f"DocGen executing code in {tmp_dir}, looking for: {output_file}")
+        logger.info(f"DocGen executing code in {docs_dir}, looking for: {output_file}")
 
         result = subprocess.run(
             [sys.executable, script_path],
@@ -4212,8 +4410,18 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
         logger.info(f"DocGen stderr: {result.stderr[:500] if result.stderr else '(empty)'}")
 
         if result.returncode != 0:
-            yield f"data: {json.dumps({'type': 'error', 'message': result.stderr[:500]})}\n\n"
-            # Clean up script file
+            # Clean up raw Python error — show user-friendly message instead
+            stderr_clean = result.stderr.strip()
+            # Extract just the error type and message, not full traceback
+            error_line = ""
+            for line in stderr_clean.split("\n"):
+                if "Error" in line or "error" in line:
+                    error_line = line.strip()
+                    break
+            if not error_line:
+                error_line = stderr_clean[:200] if stderr_clean else "Unknown execution error"
+            logger.error(f"DocGen execution failed: {stderr_clean[:500]}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Eksekusi kode gagal: {error_line}. Coba ulang atau jelaskan dokumen lebih detail.'})}\n\n"
             if os.path.exists(script_path):
                 os.remove(script_path)
             return
@@ -4229,7 +4437,7 @@ async def _stream_doc_generation(prompt: str, user_id: str, model_id: str = "dee
                 logger.info(f"DocGen: exact file not found, using: {output_file}")
             else:
                 logger.error(f"DocGen: no files created. Files in dir: {os.listdir(docs_dir)}")
-                yield f"data: {json.dumps({'type': 'error', 'message': f'File tidak ditemukan setelah eksekusi. Periksa kode Python.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': 'File tidak ditemukan setelah eksekusi kode. Kemungkinan kode tidak membuat file output. Coba ulang dengan deskripsi yang lebih spesifik.'})}\n\n"
                 if os.path.exists(script_path):
                     os.remove(script_path)
                 return
@@ -5676,12 +5884,15 @@ async def upload_and_analyze(
 
         content_type = upload.content_type or ""
         result = await extract_file_content(file_bytes, upload.filename or "file", content_type)
-        filenames.append(upload.filename or "file")
+        filename = upload.filename or "file"
+        filenames.append(filename)
 
         if result["kind"] == "image":
             image_blocks.append(result)
         else:
             file_texts.append(result["text"])
+            # BUGFIX: Store extracted text content in artifact_store for later access via read_file
+            _artifact_store[filename] = result["text"]
 
     # Build message content for the provider
     # Use text-only format (OpenAI-compatible) — images as text descriptions
@@ -5754,6 +5965,7 @@ async def upload_and_analyze(
         "success": True,
         "response": response_text,
         "files_analyzed": filenames,
+        "stored_files": filenames,  # List of files now available via read_file tool
     })
 
 

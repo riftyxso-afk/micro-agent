@@ -32,6 +32,7 @@ import { DeepResearchPanel } from "@/components/chat/DeepResearchPanel";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { CodeGenerationPanel } from "@/components/chat/CodeGenerationPanel";
 import { ArtifactCard } from "@/components/chat/ArtifactCard";
+import { CanvasPanel } from "@/components/chat/CanvasPanel";
 import { LoadingAnimation, getLoadingType } from "@/components/chat/LoadingAnimation";
 
 const nextId = () => `msg-${crypto.randomUUID().slice(0, 8)}`;
@@ -88,6 +89,13 @@ export default function ChatInterface() {
   const [showSurvey, setShowSurvey] = useState(false);
   const deepResearchAbortRef = useRef(null);
 
+  // Canvas panel state
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [canvasArtifacts, setCanvasArtifacts] = useState([]); // { id, file_name, file_type, content, version, ... }
+  const [activeArtifactId, setActiveArtifactId] = useState(null);
+  const [canvasMaximized, setCanvasMaximized] = useState(false);
+  const canvasAutoOpenedRef = useRef(false); // prevent auto-open when loading history
+
   const seededRef = useRef(false);
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
@@ -132,6 +140,16 @@ export default function ChatInterface() {
         }));
         setMessages(restored);
         savedMsgCountRef.current = restored.length;
+        // Fetch persisted artifacts for this session
+        canvasAutoOpenedRef.current = true; // don't auto-open for history
+        fetch(`${API_BASE_URL}/api/sessions/${sid}/artifacts`, {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        }).then((r) => r.json()).then((data) => {
+          if (data.artifacts?.length) {
+            setCanvasArtifacts(data.artifacts);
+          }
+          canvasAutoOpenedRef.current = false;
+        }).catch(() => { canvasAutoOpenedRef.current = false; });
         setLoadingSession(false);
       }).catch(() => setLoadingSession(false));
     });
@@ -233,6 +251,7 @@ export default function ChatInterface() {
         searchModePrompt,
         comparison: comparisonAtSend,
         userId: user?.id || null,
+        sessionId: sessionId || null,
         authToken: session?.access_token || null,
         signal: controller.signal,
         onMeta: (meta) => {
@@ -374,6 +393,7 @@ export default function ChatInterface() {
           } : m));
         },
         onArtifact: (artifact) => {
+          // Update message with artifact card data
           setMessages((prev) => prev.map((m) => m.id === assistantId ? {
             ...m,
             artifact: {
@@ -382,8 +402,33 @@ export default function ChatInterface() {
               url: artifact.url,
               description: artifact.description,
               content: artifact.content,
+              artifactId: artifact.artifact_id,
+              version: artifact.version,
             },
           } : m));
+          // Update canvas panel — add/update artifact
+          const newArtifact = {
+            id: artifact.artifact_id || `temp-${Date.now()}`,
+            file_name: artifact.file_name,
+            file_type: artifact.file_type,
+            content: artifact.content,
+            version: artifact.version || 1,
+            description: artifact.description,
+          };
+          setCanvasArtifacts((prev) => {
+            const idx = prev.findIndex((a) => a.file_name === artifact.file_name);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = newArtifact;
+              return updated;
+            }
+            return [...prev, newArtifact];
+          });
+          setActiveArtifactId(newArtifact.id);
+          // Auto-open canvas panel only for real-time generation (not history load)
+          if (!canvasAutoOpenedRef.current) {
+            setCanvasOpen(true);
+          }
         },
         onCodeExecution: (exec) => {
           setMessages((prev) => prev.map((m) => m.id === assistantId ? {
@@ -1128,7 +1173,7 @@ export default function ChatInterface() {
           collapsed ? "md:ml-[56px]" : "md:ml-[86px]"
         } ${
           sessionFiles.length > 0 ? "lg:ml-[calc(86px+220px)]" : ""
-        }`}
+        } ${canvasOpen && canvasArtifacts.length > 0 && !canvasMaximized ? "lg:flex-row" : ""}`}
       >
         {/* Chat title header */}
         {messages.length > 0 && (
@@ -1375,6 +1420,52 @@ export default function ChatInterface() {
                       </a>
                     </div>
                   )}
+                  {/* Artifact card marker — clickable card in chat to open canvas */}
+                  {m.artifact && m.state === "completed" && (
+                    <div className="mt-2 ml-10">
+                      <button
+                        onClick={() => {
+                          // Find this artifact in canvas artifacts, or add it
+                          const artId = m.artifact.artifactId;
+                          if (artId) {
+                            const exists = canvasArtifacts.find((a) => a.id === artId);
+                            if (exists) {
+                              setActiveArtifactId(artId);
+                            } else {
+                              setCanvasArtifacts((prev) => [...prev, {
+                                id: artId,
+                                file_name: m.artifact.fileName,
+                                file_type: m.artifact.fileType,
+                                content: m.artifact.content,
+                                version: m.artifact.version || 1,
+                              }]);
+                              setActiveArtifactId(artId);
+                            }
+                          }
+                          setCanvasOpen(true);
+                        }}
+                        className="ma-focus group flex w-full max-w-sm items-center gap-3 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] px-3.5 py-2.5 text-left transition-all hover:border-[#C7D2FE] hover:bg-[#EEF2FF]"
+                        data-testid="artifact-open-canvas"
+                      >
+                        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#F3F4F6] group-hover:bg-[#DDD6FE]/30">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                            <polyline points="10 9 9 9 8 9"/>
+                          </svg>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-[#111111]">{m.artifact.fileName}</p>
+                          <p className="text-[11px] text-[#9CA3AF]">Open in canvas</p>
+                        </div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 group-hover:stroke-[#6366F1]">
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   {/* RAG indicator badge */}
                   {m.ragUsed && m.state === "completed" && (
                     <div className="mt-1.5 ml-10 flex items-center gap-1.5 text-[11px] text-[#6366F1]">
@@ -1436,6 +1527,38 @@ export default function ChatInterface() {
           </div>
         </footer>
       </div>
+
+      {/* Canvas Panel — split view right side (desktop only) */}
+      {canvasOpen && canvasArtifacts.length > 0 && !canvasMaximized && (
+        <div className="hidden min-h-0 flex-1 lg:block" style={{ maxWidth: "55%", minWidth: "400px" }}>
+          <CanvasPanel
+            artifacts={canvasArtifacts}
+            activeArtifactId={activeArtifactId}
+            onClose={() => setCanvasOpen(false)}
+            onRefresh={(id) => { /* TODO: re-run code */ }}
+            onMaximize={() => setCanvasMaximized(true)}
+            isMaximized={false}
+            onSelectArtifact={(id) => setActiveArtifactId(id)}
+            authToken={session?.access_token}
+          />
+        </div>
+      )}
+
+      {/* Canvas Panel — mobile overlay OR maximized */}
+      {canvasOpen && canvasArtifacts.length > 0 && (canvasMaximized || true) && (
+        <div className={`${canvasMaximized ? "fixed inset-0 z-50" : "fixed inset-0 z-50 lg:hidden"} flex bg-white`}>
+          <CanvasPanel
+            artifacts={canvasArtifacts}
+            activeArtifactId={activeArtifactId}
+            onClose={() => { setCanvasOpen(false); setCanvasMaximized(false); }}
+            onRefresh={(id) => { /* TODO: re-run code */ }}
+            onMaximize={() => setCanvasMaximized(!canvasMaximized)}
+            isMaximized={canvasMaximized}
+            onSelectArtifact={(id) => setActiveArtifactId(id)}
+            authToken={session?.access_token}
+          />
+        </div>
+      )}
 
       <MobileNav activeNav={activeNav} onNavChange={handleNavChange} />
 

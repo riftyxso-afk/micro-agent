@@ -49,7 +49,7 @@ const PHASE_CONFIG = {
   },
 };
 
-export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onError }) {
+export function CodeGenerationPanel({ prompt, userId, modelId, chatHistory, onComplete, onError }) {
   const [phase, setPhase] = useState("generating");
   const [code, setCode] = useState("");
   const [isExpanded, setExpanded] = useState(true);
@@ -131,7 +131,7 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
       const res = await fetch(`${API_BASE_URL}/api/generate-document-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, user_id: userId, model_id: modelId || "claude-sonnet-4.5-1m" }),
+        body: JSON.stringify({ prompt, user_id: userId, model_id: modelId || "claude-sonnet-4.5-1m", chat_history: chatHistory || [] }),
       });
 
       if (!res.ok) {
@@ -178,7 +178,7 @@ export function CodeGenerationPanel({ prompt, userId, modelId, onComplete, onErr
       setErrorMsg(err.message || "Connection error");
       onError?.(err.message);
     }
-  }, [prompt, userId, modelId, handleSSEEvent, onError]);
+  }, [prompt, userId, modelId, chatHistory, handleSSEEvent, onError]);
 
   useEffect(() => {
     if (!startedRef.current) {
