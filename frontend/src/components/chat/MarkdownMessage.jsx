@@ -16,6 +16,8 @@ import 'prismjs/components/prism-yaml';
 import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-go';
 import 'prismjs/components/prism-rust';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import './prism-override.css';
 
 /* ------------------------------------------------------------------ */
@@ -175,20 +177,49 @@ const looksLikeFormula = (value) =>
   /[=+\-*/^²³¹×÷√≤≥≠()]/.test(value) && /\d|[a-z]/i.test(value);
 
 /* ------------------------------------------------------------------ */
-/*  Inline Math (simple, no KaTeX)                                     */
+/*  KaTeX Math Rendering                                               */
 /* ------------------------------------------------------------------ */
 
-const InlineMath = ({ code }) => (
-  <span className="mx-0.5 rounded bg-[#F3F4F6] px-1.5 py-0.5 font-mono text-sm text-[#6366F1] italic">
-    {code}
-  </span>
-);
+const renderKaTeX = (code, displayMode = false) => {
+  try {
+    const html = katex.renderToString(code, {
+      displayMode,
+      throwOnError: false,
+      errorColor: '#EF4444',
+      strict: false,
+      macros: {
+        "\\R": "\\mathbb{R}",
+        "\\N": "\\mathbb{N}",
+        "\\Z": "\\mathbb{Z}",
+        "\\C": "\\mathbb{C}",
+        "\\Q": "\\mathbb{Q}",
+      },
+    });
+    return html;
+  } catch {
+    return `<span class="text-red-500">${code}</span>`;
+  }
+};
 
-const MathBlock = ({ code }) => (
-  <div className="overflow-x-auto rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-4 text-center font-mono text-sm leading-relaxed text-[#6366F1]">
-    {code}
-  </div>
-);
+const InlineMath = ({ code }) => {
+  const html = useMemo(() => renderKaTeX(code, false), [code]);
+  return (
+    <span
+      className="katex-inline mx-0.5"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
+
+const MathBlock = ({ code }) => {
+  const html = useMemo(() => renderKaTeX(code, true), [code]);
+  return (
+    <div
+      className="katex-block overflow-x-auto rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-5 text-center"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
 
 const CodeBlock = ({ language, content }) => {
   const [copied, setCopied] = useState(false);
@@ -559,6 +590,14 @@ export const MarkdownMessage = ({ text = "" }) => {
 
   return (
     <div className="space-y-4 text-[15px] leading-[1.75] text-[#1F2937]">
+      {/* KaTeX global styles — scoped to our container */}
+      <style>{`
+        .katex-inline .katex { font-size: 1.05em; }
+        .katex-block .katex { font-size: 1.15em; }
+        .katex-block .katex-display { margin: 0.25em 0; }
+        .katex .base { margin: 0 0.05em; }
+      `}</style>
+
       {/* Main content */}
       {mainBlocks.map((block, index) => renderBlock(block, index))}
 
