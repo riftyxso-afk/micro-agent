@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { supabase, onAuthChange, getSession, signIn, signUp, signOut } from "@/lib/supabase";
 import { API_BASE_URL } from "@/lib/chatApi";
+import { safeGetItem, safeSetItem, safeRemoveItem, safeInitStorageInt } from "@/lib/safeStorage";
 
 const GUEST_LIMIT = 10;
 const GUEST_COUNT_KEY = "ma_guest_prompts";
@@ -22,10 +23,7 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isOnboarded, setIsOnboarded] = useState(true); // assume true until verified
-  const [guestCount, setGuestCount] = useState(() => {
-    try { return parseInt(localStorage.getItem(GUEST_COUNT_KEY) || "0", 10); }
-    catch { return 0; }
-  });
+  const [guestCount, setGuestCount] = useState(() => safeInitStorageInt(GUEST_COUNT_KEY, 0));
 
   useEffect(() => {
     getSession().then(async (s) => {
@@ -51,7 +49,7 @@ export function AuthProvider({ children }) {
             setIsOnboarded(onboarded);
           }
         });
-        try { localStorage.removeItem(GUEST_COUNT_KEY); } catch {}
+        safeRemoveItem(GUEST_COUNT_KEY);
         setGuestCount(0);
       }
     });
@@ -83,7 +81,7 @@ export function AuthProvider({ children }) {
     if (user) return true;
     const next = guestCount + 1;
     setGuestCount(next);
-    try { localStorage.setItem(GUEST_COUNT_KEY, String(next)); } catch {}
+    safeSetItem(GUEST_COUNT_KEY, String(next));
     return next <= GUEST_LIMIT;
   }, [user, guestCount]);
 

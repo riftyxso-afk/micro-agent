@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Terminal, X, ExternalLink, ChevronRight } from "lucide-react";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 
 const STORAGE_KEY = "ma_cli_banner_dismissed";
 
@@ -9,19 +10,15 @@ export function CLIBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try {
-      const dismissed = localStorage.getItem(STORAGE_KEY);
-      if (!dismissed) setVisible(true);
-    } catch {
-      setVisible(true);
-    }
+    const dismissed = safeGetItem(STORAGE_KEY);
+    if (!dismissed) setVisible(true);
   }, []);
 
   if (!visible) return null;
 
   const dismiss = () => {
     setVisible(false);
-    try { localStorage.setItem(STORAGE_KEY, "1"); } catch {}
+    safeSetItem(STORAGE_KEY, "1");
   };
 
   return (

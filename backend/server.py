@@ -3256,6 +3256,47 @@ def get_model_specific_config(model_id: str, effort_level: str, has_web_context:
     return base
 
 
+
+def _parse_code_blocks_to_artifacts(text: str, chat_id: str, user_id: str) -> Iterator[str]:
+    """Parse fenced code blocks from model response and emit artifact events.
+    Used for models that don't support tool calling (MiniMax, MiMo)."""
+    import uuid as _uuid
+    pattern = r'```(\w*)
+([\s\S]*?)```'
+    matches = list(re.finditer(pattern, text))
+    if not matches:
+        return
+
+    for i, m in enumerate(matches):
+        lang = m.group(1).strip() or "text"
+        code = m.group(2).strip()
+        if not code or len(code) < 10:
+            continue
+
+        # Map language to file extension
+        ext_map = {
+            "html": "html", "css": "css", "javascript": "js", "js": "js",
+            "typescript": "ts", "ts": "ts", "python": "py", "py": "py",
+            "jsx": "jsx", "tsx": "tsx", "json": "json", "xml": "xml",
+            "svg": "svg", "bash": "sh", "shell": "sh", "sql": "sql",
+            "yaml": "yaml", "yml": "yaml", "markdown": "md", "md": "md",
+        }
+        ext = ext_map.get(lang, "txt")
+        file_name = f"artifact-{i+1}.{ext}"
+
+        # Store in artifact store
+        sse_data = {
+            "file_name": file_name,
+            "file_type": ext,
+            "url": None,
+            "description": f"Generated {lang} code block",
+            "content": code[:50000],
+            "artifact_id": str(_uuid.uuid4()),
+            "version": 1,
+        }
+        yield sse("artifact", sse_data)
+        logger.info("Created artifact from code block: %s (%d chars)", file_name, len(code))
+
 def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterator[str]:
     _chat_id = getattr(payload, 'session_id', None)
     _user_id = getattr(payload, 'user_id', None) or "anonymous"
@@ -3289,14 +3330,20 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
     # Get model-specific config (thinking, effort, max_tokens)
     model_config = get_model_specific_config(payload.model_id or DEFAULT_MODEL_ID, payload.effort_level, bool(web_context))
 
+    # Models that DON'T support tool/function calling
+    NO_TOOL_MODELS = {"MiniMax-M2.7-highspeed", "mimo-v2.5-pro"}
+
     body = {
         "model": model,
         "messages": normalize_messages(payload, web_context=web_context),
         **model_config,
-        "tools": ALL_TOOLS,
-        "tool_choice": {"type": "auto"},
     }
-    logger.info("Tool calling enabled: %d tools", len(ALL_TOOLS))
+    if payload.model_id not in NO_TOOL_MODELS:
+        body["tools"] = ALL_TOOLS
+        body["tool_choice"] = {"type": "auto"}
+        logger.info("Tool calling enabled: %d tools", len(ALL_TOOLS))
+    else:
+        logger.info("Tool calling disabled for model: %s", payload.model_id)
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -3329,6 +3376,7 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 return
 
             _tool_calls: dict[str, dict] = {}  # tool_id -> accumulated input JSON
+            _accumulated_text = ""  # full response text for no-tool models
 
             for raw_line in response.iter_lines(decode_unicode=True):
                 if not raw_line:
@@ -3341,6 +3389,9 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                     for tool_id, tool_data in _tool_calls.items():
                         if tool_data.get("name") == "write_file":
                             yield from _handle_write_file(tool_data, chat_id=_chat_id, user_id=_user_id)
+                    # For no-tool models, parse code blocks into artifacts
+                    if _accumulated_text and payload.model_id in NO_TOOL_MODELS:
+                        yield from _parse_code_blocks_to_artifacts(_accumulated_text, _chat_id, _user_id)
                     yield sse("done", {"status": "completed"})
                     return
                 try:
@@ -3377,6 +3428,7 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                 token = extract_delta_text(choice)
                 if token:
                     yield sse("token", {"text": token})
+                    _accumulated_text += token
 
                 # Handle finish_reason: tool_calls
                 if choice.get("finish_reason") == "tool_calls":
@@ -3399,6 +3451,9 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                     return
 
                 if choice.get("finish_reason"):
+                    # For no-tool models, parse code blocks into artifacts
+                    if _accumulated_text and payload.model_id in NO_TOOL_MODELS:
+                        yield from _parse_code_blocks_to_artifacts(_accumulated_text, _chat_id, _user_id)
                     yield sse("done", {"status": "completed"})
                     return
 

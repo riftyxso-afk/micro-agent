@@ -25,6 +25,7 @@ import { AuthProvider } from "@/lib/AuthContext";
 import { AuthModal } from "@/components/workspace/AuthModal";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppContent } from "@/components/AppContent";
+import { StorageWarning } from "@/components/StorageWarning";
 
 // Global auth modal state
 const AuthModalContext = createContext(null);
@@ -37,6 +38,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+    <StorageWarning />
     <AuthProvider>
     <AuthModalContext.Provider value={{ openAuth, closeAuth }}>
     <AppContent>

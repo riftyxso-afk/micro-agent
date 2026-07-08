@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 
 // Currency configs: code, symbol, rate vs USD, formatFn
 const CURRENCIES = {
@@ -30,9 +31,9 @@ export function useCurrency() {
 
   useEffect(() => {
     // Try cached first
-    try {
-      const cached = localStorage.getItem("ma_currency");
-      if (cached) {
+    const cached = safeGetItem("ma_currency");
+    if (cached) {
+      try {
         const { currency: c, country: co, ts } = JSON.parse(cached);
         if (Date.now() - ts < 86400000) { // 24h cache
           setCurrency(c);
@@ -40,8 +41,8 @@ export function useCurrency() {
           setLoading(false);
           return;
         }
-      }
-    } catch {}
+      } catch { /* malformed cache — ignore */ }
+    }
 
     fetch("https://ipapi.co/json/")
       .then((r) => r.json())
@@ -57,9 +58,7 @@ export function useCurrency() {
         }
         setCurrency(cur);
         setCountry(cc);
-        try {
-          localStorage.setItem("ma_currency", JSON.stringify({ currency: cur, country: cc, ts: Date.now() }));
-        } catch {}
+        safeSetItem("ma_currency", JSON.stringify({ currency: cur, country: cc, ts: Date.now() }));
       })
       .catch(() => { setCurrency(USD); setCountry("US"); })
       .finally(() => setLoading(false));

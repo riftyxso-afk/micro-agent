@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { createSession, saveMessages, fetchSessions, deleteSession, updateSession, isSupabaseEnabled, uploadFileToStorage } from "@/lib/supabase";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { MobileNav } from "@/components/workspace/MobileNav";
 import { UserMessage, AssistantMessage } from "@/components/chat/ChatMessage";
@@ -546,8 +547,7 @@ export default function ChatInterface() {
   const handleFileUploadAnalysis = useCallback(async (text, files) => {
     // Free users: max 2 file uploads
     if (!isPro && !isUltra) {
-      let uploadCount = 0;
-      try { uploadCount = parseInt(localStorage.getItem("ma_file_upload_count") || "0", 10); } catch {}
+      let uploadCount = parseInt(safeGetItem("ma_file_upload_count") || "0", 10);
       if (uploadCount >= 2) {
         toast("Batas upload tercapai", {
           description: "Free plan hanya 2x upload file. Upgrade ke Pro untuk unlimited.",
@@ -556,7 +556,7 @@ export default function ChatInterface() {
         setUploadedFiles([]);
         return;
       }
-      try { localStorage.setItem("ma_file_upload_count", String(uploadCount + 1)); } catch {}
+      safeSetItem("ma_file_upload_count", String(uploadCount + 1));
     }
 
     // Vision fallback: if model doesn't support vision, notify + use claude-sonnet-4-5-1m
