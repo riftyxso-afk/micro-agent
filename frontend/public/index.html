@@ -44,6 +44,23 @@
         Learn how to configure a non-root public URL by running `npm run build`.
         -->
         <title>MicroAgent — AI Super Workspace</title>
+        <!-- SAFE STORAGE: Patch Storage.prototype BEFORE any app code runs.
+             This catches ALL localStorage/sessionStorage access from any library
+             (Radix UI, Framer Motion, Supabase gotrue, etc.) and prevents
+             "SecurityError: The operation is insecure" on Safari private browsing.
+        -->
+        <script>
+        (function(){
+          'use strict';
+          if(typeof Storage==='undefined') return;
+          var proto={'getItem':Storage.prototype.getItem,'setItem':Storage.prototype.setItem,'removeItem':Storage.prototype.removeItem,'key':Storage.prototype.key,'clear':Storage.prototype.clear};
+          Storage.prototype.getItem=function(k){try{return proto.getItem.call(this,k)}catch(e){if(e instanceof DOMException&&e.name==='SecurityError'){return null}throw e}};
+          Storage.prototype.setItem=function(k,v){try{proto.setItem.call(this,k,v)}catch(e){if(!(e instanceof DOMException&&e.name==='SecurityError'))throw e}};
+          Storage.prototype.removeItem=function(k){try{proto.removeItem.call(this,k)}catch(e){if(!(e instanceof DOMException&&e.name==='SecurityError'))throw e}};
+          Storage.prototype.key=function(i){try{return proto.key.call(this,i)}catch(e){if(e instanceof DOMException&&e.name==='SecurityError'){return null}throw e}};
+          Storage.prototype.clear=function(){try{proto.clear.call(this)}catch(e){if(!(e instanceof DOMException&&e.name==='SecurityError'))throw e}};
+        })();
+        </script>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js" defer onerror="console.warn('Emergent script failed to load')"></script>
     </head>
