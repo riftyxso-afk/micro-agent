@@ -15,9 +15,11 @@ import {
   FileCode,
   FileText,
   File,
+  Brain,
 } from "lucide-react";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { API_BASE_URL } from "@/lib/chatApi";
+import { QuizCanvas } from "@/components/chat/QuizCanvas";
 
 const FILE_ICON_MAP = {
   html: { icon: FileCode, color: "#6366F1", bg: "#EEF2FF" },
@@ -30,6 +32,7 @@ const FILE_ICON_MAP = {
   pdf: { icon: FileText, color: "#EF4444", bg: "#FEF2F2" },
   docx: { icon: FileText, color: "#2563EB", bg: "#EFF6FF" },
   xlsx: { icon: FileText, color: "#16A34A", bg: "#F0FDF4" },
+  quiz: { icon: Brain, color: "#8B5CF6", bg: "#F5F3FF" },
   default: { icon: File, color: "#6B7280", bg: "#F9FAFB" },
 };
 
@@ -47,7 +50,7 @@ function SyntaxHighlight({ code }) {
   );
 }
 
-export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, onMaximize, isMaximized, onSelectArtifact, authToken }) {
+export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, onMaximize, isMaximized, onSelectArtifact, authToken, userId }) {
   const [viewMode, setViewMode] = useState("preview");
   const [copied, setCopied] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
@@ -70,7 +73,8 @@ export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, o
 
   const displayVersion = selectedVersion?.version_number || activeArtifact?.version || 1;
 
-  const fileIcon = getFileIconInfo(activeArtifact?.file_name);
+  const isQuizArtifact = activeArtifact?.file_type === "quiz";
+  const fileIcon = getFileIconInfo(isQuizArtifact ? "quiz" : activeArtifact?.file_name);
   const IconComp = fileIcon.icon;
   const isHTML = activeArtifact?.file_name?.endsWith(".html");
 
@@ -136,29 +140,31 @@ export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, o
           <ArrowLeft size={16} strokeWidth={1.75} />
         </button>
 
-        {/* View mode toggle */}
-        <div className="flex items-center gap-0.5 rounded-lg bg-[#F3F4F6] p-0.5">
-          <button
-            onClick={() => setViewMode("preview")}
-            className={`ma-focus flex h-7 w-7 items-center justify-center rounded-md transition-all ${
-              viewMode === "preview" ? "bg-white shadow-sm text-[#111111]" : "text-[#9CA3AF] hover:text-[#6B7280]"
-            }`}
-            title="Preview"
-            data-testid="canvas-preview-btn"
-          >
-            <Eye size={14} strokeWidth={1.75} />
-          </button>
-          <button
-            onClick={() => setViewMode("code")}
-            className={`ma-focus flex h-7 w-7 items-center justify-center rounded-md transition-all ${
-              viewMode === "code" ? "bg-white shadow-sm text-[#111111]" : "text-[#9CA3AF] hover:text-[#6B7280]"
-            }`}
-            title="Code"
-            data-testid="canvas-code-btn"
-          >
-            <Code size={14} strokeWidth={1.75} />
-          </button>
-        </div>
+        {/* View mode toggle — hidden for quiz */}
+        {!isQuizArtifact && (
+          <div className="flex items-center gap-0.5 rounded-lg bg-[#F3F4F6] p-0.5">
+            <button
+              onClick={() => setViewMode("preview")}
+              className={`ma-focus flex h-7 w-7 items-center justify-center rounded-md transition-all ${
+                viewMode === "preview" ? "bg-white shadow-sm text-[#111111]" : "text-[#9CA3AF] hover:text-[#6B7280]"
+              }`}
+              title="Preview"
+              data-testid="canvas-preview-btn"
+            >
+              <Eye size={14} strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => setViewMode("code")}
+              className={`ma-focus flex h-7 w-7 items-center justify-center rounded-md transition-all ${
+                viewMode === "code" ? "bg-white shadow-sm text-[#111111]" : "text-[#9CA3AF] hover:text-[#6B7280]"
+              }`}
+              title="Code"
+              data-testid="canvas-code-btn"
+            >
+              <Code size={14} strokeWidth={1.75} />
+            </button>
+          </div>
+        )}
 
         {/* File name + version dropdown */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -229,29 +235,38 @@ export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, o
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleCopy}
-            className="ma-focus flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium text-[#6B7280] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
-            data-testid="canvas-copy-btn"
-          >
-            {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-
-          {/* Rerun (for code execution artifacts) */}
-          {activeArtifact.created_by_tool === "execute_code" && onRefresh && (
+        {/* Actions — simplified for quiz */}
+        {isQuizArtifact ? (
+          <div className="flex items-center gap-1">
+            <span className="rounded-full bg-[#F5F3FF] px-2 py-0.5 text-[10px] font-medium text-[#8B5CF6]">
+              {activeArtifact.description || "Quiz"}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => onRefresh(activeArtifact.id)}
+              onClick={handleCopy}
               className="ma-focus flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium text-[#6B7280] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
-              title="Re-run code"
-              data-testid="canvas-rerun-btn"
+              data-testid="canvas-copy-btn"
             >
-              <RefreshCw size={12} strokeWidth={1.75} />
-              <span className="hidden sm:inline">Rerun</span>
+              {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+              {copied ? "Copied" : "Copy"}
             </button>
-          )}
+
+            {/* Rerun (for code execution artifacts) */}
+            {activeArtifact.created_by_tool === "execute_code" && onRefresh && (
+              <button
+                onClick={() => onRefresh(activeArtifact.id)}
+                className="ma-focus flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-medium text-[#6B7280] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
+                title="Re-run code"
+                data-testid="canvas-rerun-btn"
+              >
+                <RefreshCw size={12} strokeWidth={1.75} />
+                <span className="hidden sm:inline">Rerun</span>
+              </button>
+            )}
+          </div>
+        )}
 
           <button
             onClick={onMaximize}
@@ -316,7 +331,13 @@ export function CanvasPanel({ artifacts, activeArtifactId, onClose, onRefresh, o
 
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-auto bg-white">
-        {viewMode === "preview" ? (
+        {isQuizArtifact ? (
+          <QuizCanvas
+            quizData={activeArtifact?.content}
+            userId={userId}
+            authToken={authToken}
+          />
+        ) : viewMode === "preview" ? (
           <div className="h-full">
             {isHTML ? (
               <iframe

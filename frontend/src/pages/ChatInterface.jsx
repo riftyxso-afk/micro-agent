@@ -443,6 +443,41 @@ export default function ChatInterface() {
             },
           } : m));
         },
+        onQuiz: (quiz) => {
+          const quizArtifact = {
+            id: quiz.quiz_id || `quiz-${Date.now()}`,
+            file_name: `Quiz: ${quiz.title || "Untitled"}`,
+            file_type: "quiz",
+            content: quiz,
+            version: 1,
+            description: `${quiz.questions?.length || 0} questions`,
+            isQuiz: true,
+          };
+          setCanvasArtifacts((prev) => {
+            const idx = prev.findIndex((a) => a.file_type === "quiz");
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = quizArtifact;
+              return updated;
+            }
+            return [...prev, quizArtifact];
+          });
+          setActiveArtifactId(quizArtifact.id);
+          setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+            ...m,
+            artifact: {
+              fileName: quizArtifact.file_name,
+              fileType: "quiz",
+              content: quiz,
+              artifactId: quiz.quiz_id,
+              version: 1,
+              isQuiz: true,
+            },
+          } : m));
+          if (!canvasAutoOpenedRef.current) {
+            setCanvasOpen(true);
+          }
+        },
         onDone: () => {
           // Check if completed text contains a QNA block or COMPARISON_DATA block (fallback)
           setMessages((prev) => {
@@ -1540,6 +1575,7 @@ export default function ChatInterface() {
             isMaximized={false}
             onSelectArtifact={(id) => setActiveArtifactId(id)}
             authToken={session?.access_token}
+            userId={user?.id}
           />
         </div>
       )}
@@ -1556,6 +1592,7 @@ export default function ChatInterface() {
             isMaximized={canvasMaximized}
             onSelectArtifact={(id) => setActiveArtifactId(id)}
             authToken={session?.access_token}
+            userId={user?.id}
           />
         </div>
       )}

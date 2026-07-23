@@ -530,7 +530,38 @@ EXECUTE_CODE_TOOL = {
     },
 }
 
-ALL_TOOLS = [WRITE_FILE_TOOL, READ_FILE_TOOL, EDIT_FILE_TOOL, WEB_SEARCH_TOOL, WEB_FETCH_TOOL, EXECUTE_CODE_TOOL]
+GENERATE_QUIZ_TOOL = {
+    "name": "generate_quiz",
+    "description": "Membuat quiz pilihan ganda berdasarkan materi yang sudah dibaca/diekstrak dari file. Gunakan ketika user minta dibuatkan quiz, soal latihan, atau pertanyaan dari materi yang sudah di-upload. WAJIB baca dulu isi file dengan read_file tool sebelum generate soal — jangan pernah generate soal berdasarkan asumsi atau topik umum.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Judul quiz yang sesuai topik materi"},
+            "source_file_name": {"type": "string", "description": "Nama file sumber materi (jika ada)"},
+            "questions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string", "description": "Teks pertanyaan"},
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "4 pilihan jawaban (index 0-3)"
+                        },
+                        "correct_answer_index": {"type": "integer", "description": "Index (0-3) dari jawaban yang benar"},
+                        "explanation": {"type": "string", "description": "Penjelasan singkat kenapa jawaban itu benar, berdasarkan materi"}
+                    },
+                    "required": ["question", "options", "correct_answer_index", "explanation"]
+                },
+                "description": "Array soal, default 5-10 soal. Jika user minta jumlah tertentu, ikuti permintaan."
+            }
+        },
+        "required": ["title", "questions"]
+    }
+}
+
+ALL_TOOLS = [WRITE_FILE_TOOL, READ_FILE_TOOL, EDIT_FILE_TOOL, WEB_SEARCH_TOOL, WEB_FETCH_TOOL, EXECUTE_CODE_TOOL, GENERATE_QUIZ_TOOL]
 
 # Active tool invocations per stream (tool_id -> accumulated input)
 _active_tool_calls: dict[str, dict] = {}
@@ -774,6 +805,64 @@ def _handle_execute_code(tool_data: dict):
         "output": output_text[:10000],
         "error": error_text[:5000],
         "success": not error_text,
+    })
+
+
+def _handle_generate_quiz(tool_data: dict, chat_id: str = None, user_id: str = "anonymous"):
+    """Yield SSE events for generate_quiz tool call."""
+    try:
+        tool_input = json.loads(tool_data.get("input_json", "{}"))
+    except json.JSONDecodeError:
+        yield sse("error", {"message": "Failed to parse quiz data"})
+        return
+
+    title = tool_input.get("title", "Untitled Quiz")
+    source_file_name = tool_input.get("source_file_name", "")
+    questions = tool_input.get("questions", [])
+
+    if not questions or not isinstance(questions, list):
+        yield sse("error", {"message": "Quiz must have at least one question"})
+        return
+
+    if len(questions) > 50:
+        questions = questions[:50]
+
+    for i, q in enumerate(questions):
+        if not isinstance(q, dict):
+            yield sse("error", {"message": f"Invalid question at index {i}"})
+            return
+        if not q.get("question") or not q.get("options") or not isinstance(q.get("options"), list):
+            yield sse("error", {"message": f"Question {i+1} missing required fields"})
+            return
+        if len(q["options"]) < 2:
+            yield sse("error", {"message": f"Question {i+1} must have at least 2 options"})
+            return
+        correct = q.get("correct_answer_index")
+        if correct is None or not isinstance(correct, int) or correct < 0 or correct >= len(q["options"]):
+            yield sse("error", {"message": f"Question {i+1} has invalid correct_answer_index"})
+            return
+
+    quiz_id = None
+    if supa and chat_id and user_id and user_id != "anonymous":
+        try:
+            supa.table("quizzes").insert({
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "title": title,
+                "source_file_name": source_file_name,
+                "questions": questions,
+            }).execute()
+            result = supa.table("quizzes").select("id").eq("chat_id", chat_id).order("created_at", desc=True).limit(1).execute()
+            if result.data:
+                quiz_id = result.data[0]["id"]
+        except Exception as exc:
+            logger.warning("Quiz persist failed: %s", exc)
+
+    yield sse("quiz", {
+        "quiz_id": quiz_id,
+        "title": title,
+        "source_file_name": source_file_name,
+        "questions": questions,
     })
 
 
@@ -3102,6 +3191,14 @@ File berikut sudah di-upload dan tersimpan, bisa dibaca ulang dengan read_file t
 {', '.join(available_files)}
 
 Jika user minta 'buatkan dokumen berdasarkan file tadi' atau referensi implisit ke file yang sudah di-upload, gunakan read_file tool untuk akses content aslinya.
+
+ATURAN GENERATE QUIZ:
+Ketika user minta dibuatkan quiz, soal latihan, atau pertanyaan dari materi yang sudah di-upload:
+1. WAJIB baca dulu isi file menggunakan read_file tool — JANGAN PERNAH generate soal berdasarkan asumsi atau topik umum.
+2. Setelah membaca, gunakan generate_quiz tool untuk mengirim soal ke sistem.
+3. Jumlah soal default 5-10 soal. Jika user minta jumlah tertentu (misal "20 soal"), ikuti permintaan.
+4. Setiap soal harus memiliki: question (teks pertanyaan), options (4 pilihan jawaban), correct_answer_index (0-3), explanation (penjelasan berdasarkan materi).
+5. Pastikan soal benar-benar spesifik berdasarkan konten file — hindari pertanyaan yang terlalu umum.
 """
 
     # Layer B: Inject user memories into system prompt
@@ -3133,6 +3230,7 @@ Jika user minta 'buatkan dokumen berdasarkan file tadi' atau referensi implisit 
         "KAPAN JANGAN GUNAKAN QNA:\n"
         "- 'apa itu AI?' \u2192 jelas, jawab langsung\n"
         "- 'buatkan pdf absensi 10 orang' \u2192 spesifik, langsung kerjakan\n"
+        "- 'buatkan quiz' atau 'buatkan soal' dari file \u2192 langsung generate_quiz, JANGAN pakai QNA\n"
         "- 'terjemahkan ke Inggris' \u2192 jelas, langsung kerjakan\n\n"
         "ATURAN QNA: Maksimal 4 opsi. Label 2-5 kata. allow_custom: true jika ada kemungkinan lain. "
         "Setelah user memilih, LANGSUNG kerjakan tanpa tanya lagi. Satu QNA per giliran.\n\n"
@@ -3261,8 +3359,7 @@ def _parse_code_blocks_to_artifacts(text: str, chat_id: str, user_id: str) -> It
     """Parse fenced code blocks from model response and emit artifact events.
     Used for models that don't support tool calling (MiniMax, MiMo)."""
     import uuid as _uuid
-    pattern = r'```(\w*)
-([\s\S]*?)```'
+    pattern = '```(\\w*)\\n([\\s\\S]*?)```'
     matches = list(re.finditer(pattern, text))
     if not matches:
         return
@@ -3440,6 +3537,7 @@ def stream_provider(payload: ChatStreamRequest, web_context: str = "") -> Iterat
                         "web_search": _handle_web_search_tool,
                         "web_fetch": _handle_web_fetch_tool,
                         "execute_code": _handle_execute_code,
+                        "generate_quiz": lambda td: _handle_generate_quiz(td, chat_id=_chat_id, user_id=_user_id),
                     }
                     for tool_id, tool_data in _tool_calls.items():
                         handler = _tool_handlers.get(tool_data.get("name"))
@@ -5405,6 +5503,82 @@ async def chat_stream(payload: ChatStreamRequest, request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Quiz Submission ───────────────────────────────────────────────────────
+
+class QuizSubmitRequest(BaseModel):
+    quiz_id: str
+    answers: List[int]
+    user_id: Optional[str] = None
+
+class QuizSubmitResponse(BaseModel):
+    success: bool
+    attempt_id: Optional[str] = None
+    score: int
+    total_questions: int
+    correct_answers: List[bool]
+
+@api_router.post("/quiz/submit")
+async def quiz_submit(payload: QuizSubmitRequest, request: Request):
+    uid = _get_user_id(request) or payload.user_id or "anonymous"
+    if not supa:
+        return JSONResponse({"error": "Database not configured"}, status_code=503)
+
+    try:
+        quiz_resp = supa.table("quizzes").select("questions").eq("id", payload.quiz_id).single().execute()
+        if not quiz_resp.data:
+            return JSONResponse({"error": "Quiz not found"}, status_code=404)
+
+        questions = quiz_resp.data.get("questions", [])
+        total = len(questions)
+        answers = payload.answers[:total]
+        correct_answers = []
+        score = 0
+        for i, q in enumerate(questions):
+            user_ans = answers[i] if i < len(answers) else -1
+            correct = q.get("correct_answer_index", -1)
+            is_correct = user_ans == correct
+            correct_answers.append(is_correct)
+            if is_correct:
+                score += 1
+
+        if uid != "anonymous":
+            supa.table("quiz_attempts").insert({
+                "quiz_id": payload.quiz_id,
+                "user_id": uid,
+                "answers": answers,
+                "score": score,
+                "total_questions": total,
+            }).execute()
+
+        return JSONResponse({
+            "success": True,
+            "score": score,
+            "total_questions": total,
+            "correct_answers": correct_answers,
+        })
+    except Exception as exc:
+        logger.warning("Quiz submit failed: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+@api_router.get("/quiz/{quiz_id}/attempts")
+async def quiz_attempts(quiz_id: str, request: Request):
+    uid = _get_user_id(request) or "anonymous"
+    if not supa or uid == "anonymous":
+        return JSONResponse({"attempts": []})
+
+    try:
+        resp = supa.table("quiz_attempts") \
+            .select("id, score, total_questions, completed_at") \
+            .eq("quiz_id", quiz_id) \
+            .eq("user_id", uid) \
+            .order("completed_at", desc=True) \
+            .execute()
+        return JSONResponse({"attempts": resp.data or []})
+    except Exception as exc:
+        logger.warning("Quiz attempts fetch failed: %s", exc)
+        return JSONResponse({"attempts": []})
 
 
 # ── Deep Research ────────────────────────────────────────────────────────
